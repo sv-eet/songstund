@@ -138,21 +138,53 @@ async function handleApi(request, env, url) {
       return json({ ok: true });
     }
   }
+  // songs in a songbook (through the join table)
   if ((m = pathname.match(/^\/api\/songbooks\/([\w-]+)\/songs$/)) && method === "GET") {
     const book = await env.DB.prepare("SELECT id FROM songbooks WHERE id = ? AND user_id = ?")
       .bind(m[1], user.id).first();
     if (!book) return notFound();
     const { results } = await env.DB.prepare(
-      "SELECT id, songbook_id, title, author, key, source, lines_json FROM songs WHERE songbook_id = ? ORDER BY created_at"
+      `SELECT s.id, s.title, s.author, s.key, s.source, s.lines_json FROM songs s
+       JOIN songbook_songs bs ON bs.song_id = s.id
+       WHERE bs.songbook_id = ? ORDER BY bs.position, bs.added_at`
     ).bind(m[1]).all();
     return json({ songs: results.map((s) => ({ ...s, lines: JSON.parse(s.lines_json), lines_json: undefined })) });
   }
+  // add a library song to a songbook
+  if ((m = pathname.match(/^\/api\/songbooks\/([\w-]+)\/songs$/)) && method === "POST") {
+    const { songId } = await request.json().catch(() => ({}));
+    const book = await env.DB.prepare("SELECT id FROM songbooks WHERE id = ? AND user_id = ?")
+      .bind(m[1], user.id).first();
+    const song = await env.DB.prepare("SELECT id FROM songs WHERE id = ? AND user_id = ?")
+      .bind(songId ?? "", user.id).first();
+    if (!book || !song) return notFound();
+    await env.DB.prepare("INSERT OR IGNORE INTO songbook_songs (songbook_id, song_id) VALUES (?,?)")
+      .bind(m[1], songId).run();
+    return json({ ok: true });
+  }
+  // remove a song from a songbook (it stays in the library)
+  if ((m = pathname.match(/^\/api\/songbooks\/([\w-]+)\/songs\/([\w-]+)$/)) && method === "DELETE") {
+    const book = await env.DB.prepare("SELECT id FROM songbooks WHERE id = ? AND user_id = ?")
+      .bind(m[1], user.id).first();
+    if (!book) return notFound();
+    const res = await env.DB.prepare("DELETE FROM songbook_songs WHERE songbook_id = ? AND song_id = ?")
+      .bind(m[1], m[2]).run();
+    return res.meta.changes ? json({ ok: true }) : notFound();
+  }
 
-  // ── songs ──
+  // ── song library ──
+  if (pathname === "/api/songs" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT s.id, s.title, s.author, s.key, s.source, s.created_at,
+              (SELECT COUNT(*) FROM songbook_songs bs WHERE bs.song_id = s.id) AS in_books
+       FROM songs s WHERE s.user_id = ? ORDER BY s.title COLLATE NOCASE`
+    ).bind(user.id).all();
+    return json({ songs: results });
+  }
+  // delete a song from the library entirely (leaves every songbook via cascade)
   if ((m = pathname.match(/^\/api\/songs\/([\w-]+)$/)) && method === "DELETE") {
-    const res = await env.DB.prepare(
-      `DELETE FROM songs WHERE id = ? AND songbook_id IN (SELECT id FROM songbooks WHERE user_id = ?)`
-    ).bind(m[1], user.id).run();
+    const res = await env.DB.prepare("DELETE FROM songs WHERE id = ? AND user_id = ?")
+      .bind(m[1], user.id).run();
     return res.meta.changes ? json({ ok: true }) : notFound();
   }
 
@@ -191,7 +223,7 @@ async function handleApi(request, env, url) {
     if (pathname === "/api/admin/users" && method === "GET") {
       const { results } = await env.DB.prepare(
         `SELECT u.email, u.subscription_status, u.vanity_slug, u.approved, u.is_admin, u."createdAt" as created_at,
-                (SELECT COUNT(*) FROM songs sg JOIN songbooks sb ON sg.songbook_id = sb.id WHERE sb.user_id = u.id) AS songs,
+                (SELECT COUNT(*) FROM songs sg WHERE sg.user_id = u.id) AS songs,
                 (SELECT COUNT(*) FROM sessions se WHERE se.user_id = u.id) AS sessions
          FROM "user" u ORDER BY u.approved ASC, u."createdAt" DESC LIMIT 200`
       ).all();

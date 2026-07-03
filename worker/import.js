@@ -125,13 +125,28 @@ export async function handleImport(request, env, user) {
     .bind(songbookId ?? "", user.id).first();
   if (!book) return Response.json({ error: "Söngbók fannst ekki." }, { status: 404 });
 
+  /* Songs live in the user's library; a matching title+author is reused
+     instead of duplicated, and the song is linked into the songbook. */
   const insertSong = async (title, author, key, source, lines) => {
-    const id = crypto.randomUUID();
     const songTitle = (title || "").trim() || "Ónefnt lag";
-    await env.DB.prepare(
-      "INSERT INTO songs (id, songbook_id, title, author, key, source, lines_json) VALUES (?,?,?,?,?,?,?)"
-    ).bind(id, songbookId, songTitle, (author || "").trim(), key || "", source, JSON.stringify(lines)).run();
-    return { id, songbook_id: songbookId, title: songTitle, author: (author || "").trim(), key: key || "", source, lines };
+    const songAuthor = (author || "").trim();
+    const existing = await env.DB.prepare(
+      "SELECT id, title, author, key, source, lines_json FROM songs WHERE user_id = ? AND title = ? COLLATE NOCASE AND author = ? COLLATE NOCASE"
+    ).bind(user.id, songTitle, songAuthor).first();
+
+    let song;
+    if (existing) {
+      song = { id: existing.id, title: existing.title, author: existing.author, key: existing.key, source: existing.source, lines: JSON.parse(existing.lines_json) };
+    } else {
+      const id = crypto.randomUUID();
+      await env.DB.prepare(
+        "INSERT INTO songs (id, user_id, title, author, key, source, lines_json) VALUES (?,?,?,?,?,?,?)"
+      ).bind(id, user.id, songTitle, songAuthor, key || "", source, JSON.stringify(lines)).run();
+      song = { id, title: songTitle, author: songAuthor, key: key || "", source, lines };
+    }
+    await env.DB.prepare("INSERT OR IGNORE INTO songbook_songs (songbook_id, song_id) VALUES (?,?)")
+      .bind(songbookId, song.id).run();
+    return song;
   };
 
   let kind, source, sheetText, songKey = body.key ?? "", title = (body.title ?? "").trim(), author = (body.author ?? "").trim();

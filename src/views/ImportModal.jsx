@@ -1,31 +1,56 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { T, mono } from "../theme.js";
 import { Btn, Input, ErrorText, btnBase } from "../ui.jsx";
 import { api } from "../api.js";
 
-export default function ImportModal({ songbookId, onClose, onAdded }) {
-  const [tab, setTab] = useState("paste");
+export default function ImportModal({ songbookId, currentIds, onClose, onChanged }) {
+  const [tab, setTab] = useState("safn");
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [library, setLibrary] = useState(null);
+  const [inBook, setInBook] = useState(() => new Set(currentIds));
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    api.get("/api/songs")
+      .then(({ songs }) => setLibrary(songs))
+      .catch((e) => setErr(e.message));
+  }, []);
 
   const submit = async (payload) => {
     setBusy(true); setErr("");
     try {
-      const { songs } = await api.post("/api/import", {
+      await api.post("/api/import", {
         songbookId, title: title.trim(), author: author.trim(), ...payload,
       });
-      onAdded(songs);
+      onChanged();
       onClose();
     } catch (e) {
       setErr(e.message);
     } finally {
       setBusy(false);
     }
+  };
+
+  const addFromLibrary = async (song) => {
+    try {
+      await api.post(`/api/songbooks/${songbookId}/songs`, { songId: song.id });
+      setInBook((cur) => new Set(cur).add(song.id));
+      onChanged();
+    } catch (e) { setErr(e.message); }
+  };
+
+  const deleteFromLibrary = async (song) => {
+    if (!window.confirm(`Eyða „${song.title}“ alveg úr safninu? Lagið hverfur úr öllum söngbókum.`)) return;
+    try {
+      await api.del(`/api/songs/${song.id}`);
+      setLibrary((cur) => cur.filter((s) => s.id !== song.id));
+      onChanged();
+    } catch (e) { setErr(e.message); }
   };
 
   const onPdf = async (file) => {
@@ -67,9 +92,9 @@ export default function ImportModal({ songbookId, onClose, onAdded }) {
           <button onClick={onClose} style={{ ...btnBase, background: "none", color: T.dim, padding: "6px 12px" }}>✕</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-          {[["paste", "Líma texta"], ["url", "Vefslóð"], ["pdf", "PDF"]].map(([k, l]) => (
+          {[["safn", "Úr safni"], ["paste", "Líma texta"], ["url", "Vefslóð"], ["pdf", "PDF"]].map(([k, l]) => (
             <button key={k} onClick={() => { setTab(k); setErr(""); }} style={{
-              ...btnBase, padding: "8px 14px", fontSize: 14, flex: 1,
+              ...btnBase, padding: "8px 12px", fontSize: 14, flex: 1,
               background: tab === k ? T.raised : "none",
               color: tab === k ? T.amber : T.dim,
               borderColor: tab === k ? T.amberDeep : T.line,
@@ -77,15 +102,36 @@ export default function ImportModal({ songbookId, onClose, onAdded }) {
           ))}
         </div>
 
-        {tab !== "url" && (
-          <div style={{ display: "grid", gap: 10, marginBottom: 10 }}>
-            <Input placeholder="Titill" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <Input placeholder="Höfundur (valfrjálst)" value={author} onChange={(e) => setAuthor(e.target.value)} />
+        {tab === "safn" && (
+          <div>
+            {library === null && <p style={{ color: T.faint, fontSize: 14 }}>Sæki safnið …</p>}
+            {library?.length === 0 && (
+              <p style={{ color: T.faint, fontSize: 14, textAlign: "center", padding: "24px 0" }}>
+                Safnið er tómt — límdu texta, sæktu vefslóð eða flyttu inn PDF til að byrja.
+              </p>
+            )}
+            {library?.map((s) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 2px", borderBottom: `1px solid ${T.line}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
+                  <div style={{ color: T.dim, fontSize: 12 }}>{s.author}{s.in_books > 1 ? ` · í ${s.in_books} bókum` : ""}</div>
+                </div>
+                {inBook.has(s.id) ? (
+                  <span style={{ color: T.live, fontSize: 13, flexShrink: 0 }}>Í bókinni ✓</span>
+                ) : (
+                  <button onClick={() => addFromLibrary(s)} style={{ ...btnBase, background: T.amber, color: "#221708", fontWeight: 600, padding: "7px 13px", fontSize: 13, borderColor: T.amber, flexShrink: 0 }}>＋ Bæta við</button>
+                )}
+                <button onClick={() => deleteFromLibrary(s)} aria-label={`Eyða ${s.title} úr safni`}
+                  style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "4px 6px", flexShrink: 0 }}>🗑</button>
+              </div>
+            ))}
           </div>
         )}
 
         {tab === "paste" && (
           <div style={{ display: "grid", gap: 10 }}>
+            <Input placeholder="Titill" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input placeholder="Höfundur (valfrjálst)" value={author} onChange={(e) => setAuthor(e.target.value)} />
             <textarea value={text} onChange={(e) => setText(e.target.value)}
               placeholder={"Límdu hljómablað hér — parserinn þekkir hljómalínur sjálfkrafa:\n\nC        G\nDæmi um línu með hljómum yfir texta"}
               rows={9} style={{
@@ -99,19 +145,21 @@ export default function ImportModal({ songbookId, onClose, onAdded }) {
 
         {tab === "url" && (
           <div style={{ display: "grid", gap: 10 }}>
-            <Input placeholder="https://www.guitarparty.com/lag/…" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <Input placeholder="https://www.guitarparty.com/songs/…" value={url} onChange={(e) => setUrl(e.target.value)} />
             <Input placeholder="Titill (valfrjálst — annars lesinn af síðunni)" value={title} onChange={(e) => setTitle(e.target.value)} />
             <Input placeholder="Höfundur (valfrjálst)" value={author} onChange={(e) => setAuthor(e.target.value)} />
             <Btn primary disabled={!url.trim() || busy} onClick={() => submit({ url: url.trim() })}
               style={{ opacity: url.trim() && !busy ? 1 : 0.5 }}>{busy ? "Sæki og greini…" : "Sækja lag"}</Btn>
             <p style={{ color: T.faint, fontSize: 13 }}>
-              Sækir síðuna, les hljóma og texta úr henni og vistar í söngbókina þína.
+              Guitarparty-slóðir eru studdar sérstaklega; aðrar síður eru greindar eftir bestu getu.
             </p>
           </div>
         )}
 
         {tab === "pdf" && (
           <div style={{ display: "grid", gap: 10 }}>
+            <Input placeholder="Titill (fyrir stök lög — söngbækur greinast sjálfkrafa)" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input placeholder="Höfundur (valfrjálst)" value={author} onChange={(e) => setAuthor(e.target.value)} />
             <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }}
               onChange={(e) => onPdf(e.target.files?.[0])} />
             <div role="button" onClick={() => fileRef.current?.click()}
@@ -121,7 +169,7 @@ export default function ImportModal({ songbookId, onClose, onAdded }) {
               {busy ? "Les PDF og greini…" : "Dragðu PDF hingað eða smelltu til að velja skrá"}
             </div>
             <p style={{ color: T.faint, fontSize: 13 }}>
-              Textinn er lesinn úr skjalinu í vafranum þínum. Skannaðar myndir (án texta) fá villu — OCR kemur í næstu útgáfu.
+              Guitarparty-söngbækur greinast í stök lög sjálfkrafa. Skannaðar myndir (án texta) fá villu — OCR kemur í næstu útgáfu.
             </p>
           </div>
         )}

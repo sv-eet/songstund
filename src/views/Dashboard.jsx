@@ -64,9 +64,10 @@ export default function Dashboard({ user, onStartSession }) {
     } catch (e) { setErr(e.message); }
   };
 
-  const deleteSong = async (s) => {
+  // Removes the song from this songbook only — it stays in the library.
+  const removeSong = async (s) => {
     try {
-      await api.del(`/api/songs/${s.id}`);
+      await api.del(`/api/songbooks/${bookId}/songs/${s.id}`);
       setSongs(songs.filter((x) => x.id !== s.id));
     } catch (e) { setErr(e.message); }
   };
@@ -164,15 +165,15 @@ export default function Dashboard({ user, onStartSession }) {
             <span style={{ display: "block", fontSize: 17 }}>{s.title}</span>
             <span style={{ color: T.dim, fontSize: 13 }}>{s.author || s.source}</span>
           </button>
-          <button onClick={() => deleteSong(s)}
-            aria-label={`Eyða ${s.title}`}
+          <button onClick={() => removeSong(s)}
+            aria-label={`Fjarlægja ${s.title} úr söngbók`} title="Fjarlægja úr söngbók"
             style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "4px 8px" }}>✕</button>
         </div>
       ))}
 
       {importing && (
-        <ImportModal songbookId={bookId} onClose={() => setImporting(false)}
-          onAdded={(added) => setSongs((cur) => [...cur, ...added])} />
+        <ImportModal songbookId={bookId} currentIds={songs.map((s) => s.id)}
+          onClose={() => setImporting(false)} onChanged={loadSongs} />
       )}
     </div>
   );
