@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:worker": "wrangler dev --port 8787 --persist-to \"%LOCALAPPDATA%/songstund-dev-state\"",
+    "d1:local": "wrangler d1 migrations apply songstund --local --persist-to \"%LOCALAPPDATA%/songstund-dev-state\"",
+    "d1:remote": "wrangler d1 migrations apply songstund --remote",
+    "deploy": "vite build && wrangler deploy"
   },
   "dependencies": {
     "better-auth": "^1.6.23",

@@ -9,8 +9,8 @@
     },
     {
       "name": "songstund-worker",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["wrangler", "dev", "--port", "8787"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:worker"],
       "port": 8787
     }
   ]
