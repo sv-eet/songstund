@@ -28,9 +28,14 @@ replace those as specified below. Icelandic UI language throughout.
 
 ```
 users:      id, email, password_hash (better-auth managed), created_at,
-            subscription_status, vanity_slug (unique, for /p/{slug})
+            subscription_status, vanity_slug (unique, for /p/{slug}),
+            is_admin, approved (registrations need admin approval)
 songbooks:  id, user_id, name, created_at
-songs:      id, songbook_id, title, author, key, source, lines_json, created_at
+songs:      id, user_id, title, author, key, source, lines_json, created_at
+            (per-user song library — owned by the user, not a book)
+songbook_songs: songbook_id, song_id, position, added_at
+            (many-to-many: one song can be in any number of songbooks;
+            imports reuse an existing library song on title+author match)
 sessions:   code (PK, 4 letters), user_id, created_at, ended_at
 ```
 
