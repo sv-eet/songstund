@@ -16,10 +16,10 @@ export default function ImportModal({ songbookId, onClose, onAdded }) {
   const submit = async (payload) => {
     setBusy(true); setErr("");
     try {
-      const { song } = await api.post("/api/import", {
+      const { songs } = await api.post("/api/import", {
         songbookId, title: title.trim(), author: author.trim(), ...payload,
       });
-      onAdded(song);
+      onAdded(songs);
       onClose();
     } catch (e) {
       setErr(e.message);
@@ -32,9 +32,23 @@ export default function ImportModal({ songbookId, onClose, onAdded }) {
     if (!file) return;
     setBusy(true); setErr("");
     try {
-      const { extractPdfText } = await import("../pdf.js");
-      const pdfText = await extractPdfText(file);
-      await submit({ pdfText, filename: file.name });
+      const { extractPdfSongs } = await import("../pdf.js");
+      const found = await extractPdfSongs(file);
+      if (!found.length) {
+        setErr("PDF-skjalið inniheldur engan texta — líklega skönnuð mynd. OCR kemur í næstu útgáfu.");
+        setBusy(false);
+        return;
+      }
+      if (found.length > 1 && !window.confirm(`Fann ${found.length} lög í skjalinu — flytja þau öll inn?`)) {
+        setBusy(false);
+        return;
+      }
+      // Single generic PDF: let the title/author fields override.
+      if (found.length === 1 && !found[0].title) {
+        found[0].title = title.trim();
+        found[0].author = author.trim() || found[0].author;
+      }
+      await submit({ pdfSongs: found, filename: file.name });
     } catch {
       setErr("Gat ekki lesið PDF-skjalið.");
       setBusy(false);

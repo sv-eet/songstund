@@ -96,6 +96,11 @@ async function handleApi(request, env, url) {
     return json({ user: publicUser(user) });
   }
 
+  // New registrations wait for admin approval before the player area unlocks.
+  if (!user.approved && !user.is_admin && !pathname.startsWith("/api/admin/")) {
+    return json({ error: "Aðgangurinn þinn bíður samþykkis." }, 403);
+  }
+
   // ── songbooks ──
   if (pathname === "/api/songbooks" && method === "GET") {
     let { results } = await env.DB.prepare(
@@ -185,12 +190,20 @@ async function handleApi(request, env, url) {
     if (!user.is_admin) return json({ error: "Aðgangur bannaður." }, 403);
     if (pathname === "/api/admin/users" && method === "GET") {
       const { results } = await env.DB.prepare(
-        `SELECT u.email, u.subscription_status, u.vanity_slug, u."createdAt" as created_at,
+        `SELECT u.email, u.subscription_status, u.vanity_slug, u.approved, u.is_admin, u."createdAt" as created_at,
                 (SELECT COUNT(*) FROM songs sg JOIN songbooks sb ON sg.songbook_id = sb.id WHERE sb.user_id = u.id) AS songs,
                 (SELECT COUNT(*) FROM sessions se WHERE se.user_id = u.id) AS sessions
-         FROM "user" u ORDER BY u."createdAt" DESC LIMIT 200`
+         FROM "user" u ORDER BY u.approved ASC, u."createdAt" DESC LIMIT 200`
       ).all();
       return json({ users: results });
+    }
+    if (pathname === "/api/admin/users/approval" && method === "POST") {
+      const { email, approved } = await request.json().catch(() => ({}));
+      if (typeof email !== "string" || typeof approved !== "boolean")
+        return json({ error: "Vantar email og approved." }, 400);
+      const res = await env.DB.prepare('UPDATE "user" SET approved = ? WHERE email = ?')
+        .bind(approved ? 1 : 0, email).run();
+      return res.meta.changes ? json({ ok: true }) : notFound();
     }
     if (pathname === "/api/admin/sessions" && method === "GET") {
       const { results } = await env.DB.prepare(
@@ -217,5 +230,6 @@ function publicUser(u) {
     subscription_status: u.subscription_status,
     vanity_slug: u.vanity_slug ?? null,
     is_admin: !!u.is_admin,
+    approved: !!u.approved,
   };
 }

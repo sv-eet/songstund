@@ -15,11 +15,14 @@ export default function Dashboard({ user, onStartSession }) {
   const [showChords, setShowChords] = useState(true);
   const [err, setErr] = useState("");
 
+  const pending = !user.approved && !user.is_admin;
+
   useEffect(() => {
+    if (pending) return;
     api.get("/api/songbooks")
       .then(({ songbooks }) => { setBooks(songbooks); setBookId((id) => id ?? songbooks[0]?.id); })
       .catch((e) => setErr(e.message));
-  }, []);
+  }, [pending]);
 
   const loadSongs = useCallback(() => {
     if (!bookId) return;
@@ -72,6 +75,20 @@ export default function Dashboard({ user, onStartSession }) {
     await authClient.signOut();
     navigate("/");
   };
+
+  if (pending) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 40, marginBottom: 14 }}>♪</div>
+        <h2 style={{ fontSize: 24, fontWeight: 500, marginBottom: 10 }}>Beðið eftir samþykki</h2>
+        <p style={{ color: T.dim, fontSize: 16, maxWidth: 340, lineHeight: 1.5, marginBottom: 24 }}>
+          Aðgangurinn þinn hefur verið stofnaður og bíður nú samþykkis umsjónarmanns.
+          Þú færð aðgang að söngbókinni um leið og hann hefur verið samþykktur.
+        </p>
+        <Btn onClick={logout}>Útskrá</Btn>
+      </div>
+    );
+  }
 
   const prevSong = songs.find((s) => s.id === preview);
   if (prevSong) {
@@ -155,7 +172,7 @@ export default function Dashboard({ user, onStartSession }) {
 
       {importing && (
         <ImportModal songbookId={bookId} onClose={() => setImporting(false)}
-          onAdded={(song) => setSongs((cur) => [...cur, song])} />
+          onAdded={(added) => setSongs((cur) => [...cur, ...added])} />
       )}
     </div>
   );

@@ -40,6 +40,7 @@ export function getAuth(env) {
         subscription_status: { type: "string", defaultValue: "active", input: false },
         vanity_slug: { type: "string", required: false, input: false },
         is_admin: { type: "boolean", defaultValue: false, input: false },
+        approved: { type: "boolean", defaultValue: false, input: false },
       },
     },
     databaseHooks: {

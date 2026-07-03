@@ -20,6 +20,13 @@ export default function Admin() {
     }).catch((e) => setErr(e.message));
   }, []);
 
+  const setApproval = async (email, approved) => {
+    try {
+      await api.post("/api/admin/users/approval", { email, approved });
+      setUsers((cur) => cur.map((u) => (u.email === email ? { ...u, approved } : u)));
+    } catch (e) { setErr(e.message); }
+  };
+
   const th = { textAlign: "left", padding: "8px 10px", color: T.faint, fontFamily: mono, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: `1px solid ${T.line}` };
   const td = { padding: "10px", fontSize: 14, borderBottom: `1px solid ${T.line}` };
   const activeSessions = sessions.filter((s) => !s.ended_at);
@@ -32,7 +39,7 @@ export default function Admin() {
       <ErrorText>{err}</ErrorText>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 26 }}>
-        {[["Notendur", users.length], ["Virkar áskriftir", users.filter((u) => u.subscription_status === "active").length], ["Virkar söngstundir", activeSessions.length]].map(([l, v]) => (
+        {[["Notendur", users.length], ["Bíða samþykkis", users.filter((u) => !u.approved).length], ["Virkar söngstundir", activeSessions.length]].map(([l, v]) => (
           <div key={l} style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 14px" }}>
             <div style={{ fontSize: 26, color: T.amber, fontWeight: 500 }}>{v}</div>
             <div style={{ color: T.dim, fontSize: 12 }}>{l}</div>
@@ -42,15 +49,26 @@ export default function Admin() {
 
       <h3 style={{ fontSize: 17, fontWeight: 500, marginBottom: 8 }}>Notendur</h3>
       <div style={{ overflowX: "auto", background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, marginBottom: 26 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
-          <thead><tr><th style={th}>Netfang</th><th style={th}>Áskrift</th><th style={th}>Slóð</th><th style={th}>Lög</th><th style={th}>Stundir</th></tr></thead>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+          <thead><tr><th style={th}>Netfang</th><th style={th}>Staða</th><th style={th}>Slóð</th><th style={th}>Lög</th><th style={th}>Stundir</th><th style={th}></th></tr></thead>
           <tbody>{users.map((u) => (
             <tr key={u.email}>
               <td style={td}>{u.email}</td>
-              <td style={{ ...td, color: u.subscription_status === "active" ? T.live : T.amber }}>{u.subscription_status === "active" ? "virk" : u.subscription_status}</td>
+              <td style={{ ...td, color: u.approved ? T.live : T.amber }}>{u.approved ? "samþykktur" : "bíður"}</td>
               <td style={{ ...td, fontFamily: mono, fontSize: 12 }}>{u.vanity_slug ? `/p/${u.vanity_slug}` : "—"}</td>
               <td style={td}>{u.songs}</td>
               <td style={td}>{u.sessions}</td>
+              <td style={{ ...td, textAlign: "right" }}>
+                {!u.is_admin && (
+                  <button onClick={() => setApproval(u.email, !u.approved)} style={{
+                    ...btnBase, padding: "6px 12px", fontSize: 13,
+                    background: u.approved ? "none" : T.amber,
+                    color: u.approved ? T.red : "#221708",
+                    borderColor: u.approved ? "#5A3730" : T.amber,
+                    fontWeight: u.approved ? 400 : 600,
+                  }}>{u.approved ? "Afturkalla" : "Samþykkja"}</button>
+                )}
+              </td>
             </tr>
           ))}</tbody>
         </table>
