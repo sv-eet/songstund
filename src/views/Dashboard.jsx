@@ -14,6 +14,20 @@ export default function Dashboard({ user, onStartSession }) {
   const [preview, setPreview] = useState(null);
   const [showChords, setShowChords] = useState(true);
   const [err, setErr] = useState("");
+  const [slug, setSlug] = useState(user.vanity_slug);
+
+  const editSlug = async () => {
+    const next = window.prompt(
+      "Fasta slóðin þín — gestir komast beint í söngstundina þína á\nsongstund.samskiptalausnir.is/{slóð}\n\nNý slóð (a–z, 0–9, bandstrik):",
+      slug ?? ""
+    );
+    if (!next?.trim() || next.trim() === slug) return;
+    try {
+      const { user: updated } = await api.patch("/api/me", { vanity_slug: next.trim().toLowerCase() });
+      setSlug(updated.vanity_slug);
+      setErr("");
+    } catch (e) { setErr(e.message); }
+  };
 
   const pending = !user.approved && !user.is_admin;
 
@@ -124,10 +138,14 @@ export default function Dashboard({ user, onStartSession }) {
         {books?.find((b) => b.id === bookId)?.name ?? "Söngbókin mín"}
       </h1>
       <p style={{ color: T.dim, fontSize: 14, marginBottom: 6 }}>{user.email}</p>
-      <p style={{ marginBottom: 16 }}>
+      <p style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <Tag color={T.live}>áskrift {user.subscription_status === "active" ? "virk" : user.subscription_status}</Tag>
-        {user.vanity_slug && (
-          <span style={{ fontFamily: mono, fontSize: 12, color: T.faint, marginLeft: 12 }}>/p/{user.vanity_slug}</span>
+        {slug && (
+          <span style={{ fontFamily: mono, fontSize: 12, color: T.faint }}>
+            {location.host}/{slug}
+            <button onClick={editSlug} title="Breyta slóð" aria-label="Breyta fastri slóð"
+              style={{ ...btnBase, background: "none", border: "none", color: T.dim, padding: "0 0 0 6px", fontSize: 12 }}>✎</button>
+          </span>
         )}
       </p>
 

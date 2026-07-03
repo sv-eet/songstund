@@ -1,4 +1,4 @@
-import { getAuth, getSessionUser } from "./auth.js";
+import { getAuth, getSessionUser, RESERVED_SLUGS } from "./auth.js";
 import { handleImport } from "./import.js";
 export { SessionRoom } from "./room.js";
 
@@ -33,9 +33,10 @@ export default {
         return await handleApi(request, env, url);
       }
 
-      // /p/{slug} — vanity redirect to the player's active session
-      const vanity = pathname.match(/^\/p\/([a-z0-9-]+)$/);
-      if (vanity) {
+      // /{slug} (and legacy /p/{slug}) — vanity redirect to the player's
+      // active session. Reserved app routes can never be slugs.
+      const vanity = pathname.match(/^\/(?:p\/)?([a-z0-9-]+)\/?$/);
+      if (vanity && !RESERVED_SLUGS.has(vanity[1])) {
         const code = await activeSessionCodeForSlug(env, vanity[1]);
         if (code) return Response.redirect(`${url.origin}/s/${code}`, 302);
         // fall through to the SPA, which shows a friendly "no active session" page
@@ -85,8 +86,9 @@ async function handleApi(request, env, url) {
 
   // ── vanity lookup for the SPA fallback page ──
   if ((m = pathname.match(/^\/api\/p\/([a-z0-9-]+)$/)) && method === "GET") {
-    const code = await activeSessionCodeForSlug(env, m[1]);
-    return json({ code });
+    const owner = await env.DB.prepare('SELECT 1 FROM "user" WHERE vanity_slug = ?').bind(m[1]).first();
+    const code = owner ? await activeSessionCodeForSlug(env, m[1]) : null;
+    return json({ exists: !!owner, code });
   }
 
   // Everything below requires a signed-in player.
@@ -94,6 +96,21 @@ async function handleApi(request, env, url) {
 
   if (pathname === "/api/me" && method === "GET") {
     return json({ user: publicUser(user) });
+  }
+
+  // change your vanity slug (songstund.samskiptalausnir.is/{slug})
+  if (pathname === "/api/me" && method === "PATCH") {
+    const body = await request.json().catch(() => ({}));
+    const slug = String(body.vanity_slug ?? "").toLowerCase().trim();
+    if (!/^[a-z0-9-]{3,40}$/.test(slug))
+      return json({ error: "Slóðin má aðeins innihalda a–z, 0–9 og bandstrik (3–40 stafir)." }, 400);
+    if (RESERVED_SLUGS.has(slug))
+      return json({ error: "Þessi slóð er frátekin." }, 400);
+    const taken = await env.DB.prepare('SELECT 1 FROM "user" WHERE vanity_slug = ? AND id != ?')
+      .bind(slug, user.id).first();
+    if (taken) return json({ error: "Þessi slóð er þegar í notkun." }, 409);
+    await env.DB.prepare('UPDATE "user" SET vanity_slug = ? WHERE id = ?').bind(slug, user.id).run();
+    return json({ user: { ...publicUser(user), vanity_slug: slug } });
   }
 
   // New registrations wait for admin approval before the player area unlocks.

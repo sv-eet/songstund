@@ -39,12 +39,14 @@ export default function App() {
     view = isPending ? null : session ? <Redirect to="/app" /> : <Login key={path} signup={path === "/signup"} />;
   } else if (path === "/app") {
     view = isPending ? null : !session ? <Redirect to="/login" /> : host
-      ? <HostSession code={host.code} songs={host.songs} onExit={() => setHost(null)} />
+      ? <HostSession code={host.code} songs={host.songs} vanitySlug={session.user.vanity_slug} onExit={() => setHost(null)} />
       : <Dashboard user={session.user} onStartSession={startSession} />;
   } else if (path === "/admin") {
     view = isPending ? null : session?.user?.is_admin ? <Admin /> : <Redirect to={session ? "/app" : "/login"} />;
   } else if (path === "/") {
     view = <Landing />;
+  } else if ((m = path.match(/^\/([a-z0-9-]+)\/?$/))) {
+    view = <Vanity key={m[1]} slug={m[1]} />;
   } else {
     view = <Redirect to="/" />;
   }

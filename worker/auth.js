@@ -2,7 +2,13 @@ import { betterAuth } from "better-auth";
 import { Kysely } from "kysely";
 import { D1Dialect } from "kysely-d1";
 
-// Icelandic-friendly slugify for vanity URLs (/p/{slug}).
+// Paths that can never be claimed as a vanity slug.
+export const RESERVED_SLUGS = new Set([
+  "api", "app", "admin", "login", "signup", "s", "p", "assets",
+  "favicon.ico", "robots.txt", "index.html", "songstund",
+]);
+
+// Icelandic-friendly slugify for vanity URLs (songstund…/{slug}).
 export function slugify(s) {
   const map = { á: "a", é: "e", í: "i", ó: "o", ú: "u", ý: "y", ð: "d", þ: "th", æ: "ae", ö: "o" };
   return s
@@ -48,7 +54,7 @@ export function getAuth(env) {
         create: {
           before: async (user) => {
             const base = slugify(user.name || user.email.split("@")[0]);
-            let slug = base;
+            let slug = RESERVED_SLUGS.has(base) ? `${base}-spilari` : base;
             for (let i = 0; i < 5; i++) {
               const hit = await env.DB.prepare('SELECT 1 FROM "user" WHERE vanity_slug = ?')
                 .bind(slug).first();

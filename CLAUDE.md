@@ -51,8 +51,9 @@ Never store or serve raw PDFs/HTML to clients.
 - `/login`, `/signup` — email/password
 - `/app` — player dashboard: songbook CRUD, import, start session
 - `/s/{code}` — guest join (this URL is what the QR encodes)
-- `/p/{slug}` — vanity redirect to the player's currently active session (404-friendly
-  message if none active)
+- `/{slug}` — vanity redirect to the player's currently active session (404-friendly
+  message if none active). User-editable via PATCH /api/me; reserved app paths are
+  blocked as slugs. `/p/{slug}` still works as a legacy alias.
 - `/admin` — admin portal (role via an `is_admin` flag): users, subscription status,
   active sessions, import/parse log
 

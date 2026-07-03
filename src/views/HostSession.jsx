@@ -39,28 +39,50 @@ function useHostSocket(code) {
   return { send, connected };
 }
 
-function QRCodeImg({ code }) {
+function QRCodeImg({ code, size = 148 }) {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     let live = true;
     import("qrcode").then((QRCode) =>
       QRCode.toDataURL(`${location.origin}/s/${code}`, {
-        width: 296, margin: 2,
+        width: size * 2, margin: 2,
         color: { dark: "#20160C", light: "#F5EFE3" },
       }).then((url) => live && setSrc(url))
     );
     return () => { live = false; };
-  }, [code]);
-  if (!src) return <div style={{ width: 148, height: 148, background: "#F5EFE3", borderRadius: 10 }} />;
-  return <img src={src} alt={`QR kóði fyrir söngstund ${code}`} width={148} height={148} style={{ borderRadius: 10, display: "block" }} />;
+  }, [code, size]);
+  if (!src) return <div style={{ width: size, height: size, background: "#F5EFE3", borderRadius: 10 }} />;
+  return <img src={src} alt={`QR kóði fyrir söngstund ${code}`} width={size} height={size} style={{ borderRadius: 10, display: "block", maxWidth: "100%", height: "auto" }} />;
 }
 
-export default function HostSession({ code, songs, onExit }) {
+/* Full-screen QR for holding the phone up to the room mid-song. */
+function QROverlay({ code, vanitySlug, onClose }) {
+  return (
+    <div onClick={onClose} role="button" aria-label="Loka QR kóða" style={{
+      position: "fixed", inset: 0, zIndex: 60, background: "rgba(10,7,5,0.94)",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      gap: 18, padding: 24, cursor: "pointer",
+    }}>
+      <QRCodeImg code={code} size={Math.min(320, Math.floor(window.innerWidth * 0.75))} />
+      <div style={{ fontFamily: mono, fontSize: 40, letterSpacing: "0.3em", color: T.amber }}>{code}</div>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontFamily: mono, fontSize: 15, color: T.ink }}>{location.host}/s/{code}</div>
+        {vanitySlug && (
+          <div style={{ fontFamily: mono, fontSize: 15, color: T.dim, marginTop: 4 }}>{location.host}/{vanitySlug}</div>
+        )}
+      </div>
+      <span style={{ color: T.faint, fontSize: 13 }}>Smelltu hvar sem er til að loka</span>
+    </div>
+  );
+}
+
+export default function HostSession({ code, songs, vanitySlug, onExit }) {
   const [songId, setSongId] = useState(null);
   const [line, setLine] = useState(0);
   const [auto, setAuto] = useState(false);
   const [secs, setSecs] = useState(6);
   const [showChords, setShowChords] = useState(true);
+  const [showQR, setShowQR] = useState(false);
   const song = songs.find((s) => s.id === songId);
   const refs = useRef([]);
   const { send, connected } = useHostSocket(code);
@@ -110,6 +132,12 @@ export default function HostSession({ code, songs, onExit }) {
             <div style={{ fontFamily: mono, fontSize: 30, letterSpacing: "0.25em", color: T.amber, margin: "2px 0 10px" }}>{code}</div>
             <Tag>slóð</Tag>
             <div style={{ fontFamily: mono, fontSize: 13, color: T.dim, wordBreak: "break-all" }}>{joinUrl}</div>
+            {vanitySlug && (
+              <>
+                <div style={{ marginTop: 10 }}><Tag>föst slóð</Tag></div>
+                <div style={{ fontFamily: mono, fontSize: 13, color: T.dim, wordBreak: "break-all" }}>{location.host}/{vanitySlug}</div>
+              </>
+            )}
           </div>
         </div>
         <p style={{ color: T.dim, fontSize: 15, marginBottom: 14 }}>Veldu lag til að byrja:</p>
@@ -133,11 +161,16 @@ export default function HostSession({ code, songs, onExit }) {
               <input type="checkbox" checked={showChords} onChange={(e) => setShowChords(e.target.checked)} style={{ accentColor: T.amber }} />
               Hljómar
             </label>
-            <span style={{ fontFamily: mono, letterSpacing: "0.25em", color: connected ? T.amber : T.faint, fontSize: 15 }}>{code}</span>
+            <button onClick={() => setShowQR(true)} title="Sýna QR kóða" aria-label="Sýna QR kóða fyrir gesti"
+              style={{ ...btnBase, background: "none", border: "none", padding: 0, fontFamily: mono, letterSpacing: "0.25em", color: connected ? T.amber : T.faint, fontSize: 15 }}>
+              {code} ⊞
+            </button>
           </div>
         </div>
         <h2 style={{ fontSize: 22, fontWeight: 500, marginTop: 12 }}>{song.title}</h2>
       </div>
+
+      {showQR && <QROverlay code={code} vanitySlug={vanitySlug} onClose={() => setShowQR(false)} />}
 
       <div style={{ flex: 1, overflowY: "auto", padding: "10px 24px 150px" }}>
         <SongLines song={song} current={line} showChords={showChords} onTapLine={setLine} refs={refs} />
