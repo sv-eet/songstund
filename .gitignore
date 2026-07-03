@@ -3,3 +3,5 @@ dist/
 .env
 .env.local
 files.zip
+.dev.vars
+.wrangler/
