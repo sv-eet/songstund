@@ -13,8 +13,7 @@
     {
       "binding": "DB",
       "database_name": "songstund",
-      // Replaced with the real id by `wrangler d1 create songstund` (see README)
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "d545653c-e9b7-4b53-910f-da939e78aa09",
       "migrations_dir": "migrations"
     }
   ],
