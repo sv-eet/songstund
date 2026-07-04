@@ -113,6 +113,19 @@ async function handleApi(request, env, url) {
     return json({ user: { ...publicUser(user), vanity_slug: slug } });
   }
 
+  // Redeeming an invite is what turns a fresh signup into an approved
+  // player, so it must work while still unapproved.
+  if (pathname === "/api/invites/redeem" && method === "POST") {
+    const { token } = await request.json().catch(() => ({}));
+    const inv = await env.DB.prepare("SELECT token FROM invites WHERE token = ? AND used_at IS NULL")
+      .bind(String(token ?? "")).first();
+    if (!inv) return json({ error: "Boðið er ógilt eða þegar notað." }, 400);
+    await env.DB.prepare("UPDATE invites SET used_at = datetime('now'), used_by = ? WHERE token = ?")
+      .bind(user.id, inv.token).run();
+    await env.DB.prepare('UPDATE "user" SET approved = 1 WHERE id = ?').bind(user.id).run();
+    return json({ ok: true });
+  }
+
   // New registrations wait for admin approval before the player area unlocks.
   if (!user.approved && !user.is_admin && !pathname.startsWith("/api/admin/")) {
     return json({ error: "Aðgangurinn þinn bíður samþykkis." }, 403);
@@ -260,6 +273,27 @@ async function handleApi(request, env, url) {
          JOIN "user" u ON u.id = s.user_id ORDER BY s.created_at DESC LIMIT 100`
       ).all();
       return json({ sessions: results });
+    }
+    if (pathname === "/api/admin/invites" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT i.token, i.note, i.created_at, i.used_at, u.email AS used_by_email
+         FROM invites i LEFT JOIN "user" u ON u.id = i.used_by
+         ORDER BY i.created_at DESC LIMIT 100`
+      ).all();
+      return json({ invites: results });
+    }
+    if (pathname === "/api/admin/invites" && method === "POST") {
+      const { note } = await request.json().catch(() => ({}));
+      const bytes = crypto.getRandomValues(new Uint8Array(9));
+      const token = [...bytes].map((b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
+      await env.DB.prepare("INSERT INTO invites (token, created_by, note) VALUES (?,?,?)")
+        .bind(token, user.id, String(note ?? "").slice(0, 120)).run();
+      return json({ invite: { token, note: String(note ?? "").slice(0, 120), created_at: new Date().toISOString(), used_at: null, used_by_email: null } });
+    }
+    if ((m = pathname.match(/^\/api\/admin\/invites\/([\w-]+)$/)) && method === "DELETE") {
+      const res = await env.DB.prepare("DELETE FROM invites WHERE token = ? AND used_at IS NULL")
+        .bind(m[1]).run();
+      return res.meta.changes ? json({ ok: true }) : notFound();
     }
     if (pathname === "/api/admin/import-log" && method === "GET") {
       const { results } = await env.DB.prepare(

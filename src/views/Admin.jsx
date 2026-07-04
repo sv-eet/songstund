@@ -8,6 +8,8 @@ export default function Admin() {
   const [users, setUsers] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [log, setLog] = useState([]);
+  const [invites, setInvites] = useState([]);
+  const [copied, setCopied] = useState(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -15,10 +17,37 @@ export default function Admin() {
       api.get("/api/admin/users"),
       api.get("/api/admin/sessions"),
       api.get("/api/admin/import-log"),
-    ]).then(([u, s, l]) => {
-      setUsers(u.users); setSessions(s.sessions); setLog(l.log);
+      api.get("/api/admin/invites"),
+    ]).then(([u, s, l, i]) => {
+      setUsers(u.users); setSessions(s.sessions); setLog(l.log); setInvites(i.invites);
     }).catch((e) => setErr(e.message));
   }, []);
+
+  const inviteUrl = (token) => `${location.origin}/signup?invite=${token}`;
+
+  const createInvite = async () => {
+    const note = window.prompt("Athugasemd við boðið (valfrjálst — t.d. fyrir hvern það er):") ?? "";
+    try {
+      const { invite } = await api.post("/api/admin/invites", { note });
+      setInvites((cur) => [invite, ...cur]);
+      copyInvite(invite.token);
+    } catch (e) { setErr(e.message); }
+  };
+
+  const copyInvite = async (token) => {
+    try {
+      await navigator.clipboard.writeText(inviteUrl(token));
+      setCopied(token);
+      setTimeout(() => setCopied(null), 2500);
+    } catch { /* clipboard unavailable — the link is visible in the row */ }
+  };
+
+  const revokeInvite = async (token) => {
+    try {
+      await api.del(`/api/admin/invites/${token}`);
+      setInvites((cur) => cur.filter((i) => i.token !== token));
+    } catch (e) { setErr(e.message); }
+  };
 
   const setApproval = async (email, approved) => {
     try {
@@ -72,6 +101,41 @@ export default function Admin() {
             </tr>
           ))}</tbody>
         </table>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <h3 style={{ fontSize: 17, fontWeight: 500 }}>Boð</h3>
+        <button onClick={createInvite} style={{ ...btnBase, background: T.amber, color: "#221708", fontWeight: 600, padding: "8px 14px", fontSize: 13, borderColor: T.amber }}>＋ Nýtt boð</button>
+      </div>
+      <p style={{ color: T.faint, fontSize: 13, marginBottom: 10 }}>
+        Sendu hlekkinn til þess sem á að fá aðgang — skráning í gegnum hann virkjast strax, ekkert samþykki þarf. Hvert boð gildir einu sinni.
+      </p>
+      <div style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, marginBottom: 26, padding: "2px 12px" }}>
+        {invites.length === 0 && <p style={{ color: T.faint, fontSize: 14, padding: "12px 2px" }}>Engin boð enn.</p>}
+        {invites.map((i) => (
+          <div key={i.token} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 2px", borderBottom: `1px solid ${T.line}` }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: mono, fontSize: 12, color: i.used_at ? T.faint : T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {inviteUrl(i.token)}
+              </div>
+              <div style={{ color: T.faint, fontSize: 12 }}>
+                {i.note && <span>{i.note} · </span>}
+                {i.used_at
+                  ? <span style={{ color: T.live }}>notað{i.used_by_email ? ` af ${i.used_by_email}` : ""}</span>
+                  : "ónotað"}
+              </div>
+            </div>
+            {!i.used_at && (
+              <>
+                <button onClick={() => copyInvite(i.token)} style={{ ...btnBase, background: "none", color: copied === i.token ? T.live : T.dim, padding: "6px 11px", fontSize: 13, flexShrink: 0 }}>
+                  {copied === i.token ? "Afritað ✓" : "Afrita"}
+                </button>
+                <button onClick={() => revokeInvite(i.token)} aria-label="Afturkalla boð"
+                  style={{ ...btnBase, background: "none", border: "none", color: T.red, padding: "4px 6px", flexShrink: 0 }}>✕</button>
+              </>
+            )}
+          </div>
+        ))}
       </div>
 
       <h3 style={{ fontSize: 17, fontWeight: 500, marginBottom: 8 }}>Söngstundir</h3>
