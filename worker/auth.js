@@ -1,11 +1,13 @@
 import { betterAuth } from "better-auth";
 import { Kysely } from "kysely";
 import { D1Dialect } from "kysely-d1";
+import { sendEmail } from "./email.js";
 
 // Paths that can never be claimed as a vanity slug.
 export const RESERVED_SLUGS = new Set([
-  "api", "app", "admin", "login", "signup", "s", "p", "assets",
+  "api", "app", "admin", "login", "signup", "reset", "s", "p", "assets",
   "favicon.ico", "robots.txt", "index.html", "songstund",
+  "manifest.webmanifest", "icon.svg",
 ]);
 
 // Icelandic-friendly slugify for vanity URLs (songstund…/{slug}).
@@ -40,7 +42,23 @@ export function getAuth(env) {
       "http://127.0.0.1:8787",
       "http://localhost:5173",
     ],
-    emailAndPassword: { enabled: true },
+    emailAndPassword: {
+      enabled: true,
+      sendResetPassword: async ({ user, url }) => {
+        await sendEmail(env, {
+          to: user.email,
+          subject: "Endurstilla lykilorð — Söngstund",
+          text: `Sæl/l,\n\nSmelltu á hlekkinn til að velja nýtt lykilorð á Söngstund:\n${url}\n\nHlekkurinn gildir í klukkustund. Ef þú baðst ekki um endurstillingu máttu hunsa þennan póst.\n\n— Söngstund · samskiptalausnir.is`,
+          html: `<div style="font-family:Georgia,serif;max-width:480px;margin:0 auto;padding:24px;background:#171310;color:#EFE4D2;border-radius:12px">
+            <p style="font-family:monospace;font-size:11px;letter-spacing:.14em;color:#F0A85C;text-transform:uppercase">söngstund · samskiptalausnir.is</p>
+            <h2 style="font-weight:500">Endurstilla lykilorð</h2>
+            <p style="color:#9A8875;line-height:1.5">Smelltu á hnappinn til að velja nýtt lykilorð. Hlekkurinn gildir í klukkustund.</p>
+            <p style="margin:28px 0"><a href="${url}" style="background:#F0A85C;color:#221708;font-weight:600;padding:13px 22px;border-radius:10px;text-decoration:none">Velja nýtt lykilorð</a></p>
+            <p style="color:#6B5D4E;font-size:13px;line-height:1.5">Ef þú baðst ekki um endurstillingu máttu hunsa þennan póst.</p>
+          </div>`,
+        });
+      },
+    },
     user: {
       additionalFields: {
         subscription_status: { type: "string", defaultValue: "active", input: false },

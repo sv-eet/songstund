@@ -10,6 +10,7 @@ import HostSession from "./views/HostSession.jsx";
 import Guest from "./views/Guest.jsx";
 import Admin from "./views/Admin.jsx";
 import Vanity from "./views/Vanity.jsx";
+import ResetPassword from "./views/ResetPassword.jsx";
 
 function Redirect({ to }) {
   useEffect(() => { navigate(to); }, [to]);
@@ -35,6 +36,8 @@ export default function App() {
     view = <Guest key={m[1].toUpperCase()} code={m[1].toUpperCase()} />;
   } else if ((m = path.match(/^\/p\/([a-z0-9-]+)$/))) {
     view = <Vanity slug={m[1]} />;
+  } else if (path === "/reset") {
+    view = <ResetPassword />;
   } else if (path === "/login" || path === "/signup") {
     view = isPending ? null : session ? <Redirect to="/app" /> : <Login key={path} signup={path === "/signup"} />;
   } else if (path === "/app") {

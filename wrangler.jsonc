@@ -25,7 +25,9 @@
     { "pattern": "songstund.samskiptalausnir.is", "custom_domain": true }
   ],
   "vars": {
-    "APP_URL": "https://songstund.samskiptalausnir.is"
+    "APP_URL": "https://songstund.samskiptalausnir.is",
+    // Must be a sender on a domain verified in the Resend account
+    "MAIL_FROM": "Söngstund <songstund@samskiptalausnir.is>"
   },
   "observability": { "enabled": true }
 }
