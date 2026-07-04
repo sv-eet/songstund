@@ -188,8 +188,23 @@ async function handleApi(request, env, url) {
     const song = await env.DB.prepare("SELECT id FROM songs WHERE id = ? AND user_id = ?")
       .bind(songId ?? "", user.id).first();
     if (!book || !song) return notFound();
-    await env.DB.prepare("INSERT OR IGNORE INTO songbook_songs (songbook_id, song_id) VALUES (?,?)")
-      .bind(m[1], songId).run();
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO songbook_songs (songbook_id, song_id, position)
+       VALUES (?,?, (SELECT COALESCE(MAX(position) + 1, 0) FROM songbook_songs WHERE songbook_id = ?))`
+    ).bind(m[1], songId, m[1]).run();
+    return json({ ok: true });
+  }
+  // persist a new song order for a songbook
+  if ((m = pathname.match(/^\/api\/songbooks\/([\w-]+)\/order$/)) && method === "PUT") {
+    const { songIds } = await request.json().catch(() => ({}));
+    if (!Array.isArray(songIds)) return json({ error: "Vantar songIds." }, 400);
+    const book = await env.DB.prepare("SELECT id FROM songbooks WHERE id = ? AND user_id = ?")
+      .bind(m[1], user.id).first();
+    if (!book) return notFound();
+    const stmts = songIds.slice(0, 500).map((id, i) =>
+      env.DB.prepare("UPDATE songbook_songs SET position = ? WHERE songbook_id = ? AND song_id = ?")
+        .bind(i, m[1], String(id)));
+    if (stmts.length) await env.DB.batch(stmts);
     return json({ ok: true });
   }
   // remove a song from a songbook (it stays in the library)

@@ -77,7 +77,10 @@ function QROverlay({ code, vanitySlug, onClose }) {
   );
 }
 
-export default function HostSession({ code, songs, vanitySlug, onExit }) {
+export default function HostSession({ code, initialBookId, vanitySlug, onExit }) {
+  const [books, setBooks] = useState(null);
+  const [bookId, setBookId] = useState(initialBookId ?? null);
+  const [songs, setSongs] = useState([]);
   const [songId, setSongId] = useState(null);
   const [line, setLine] = useState(0);
   const [auto, setAuto] = useState(false);
@@ -91,6 +94,20 @@ export default function HostSession({ code, songs, vanitySlug, onExit }) {
   const tapsRef = useRef([]);
   const { send, connected } = useHostSocket(code);
   useWakeLock(); // the guitarist's phone must not lock mid-song
+
+  // The session owns its songbook selection so the player can switch
+  // books mid-session without ending it.
+  useEffect(() => {
+    api.get("/api/songbooks")
+      .then(({ songbooks }) => { setBooks(songbooks); setBookId((id) => id ?? songbooks[0]?.id); })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!bookId) return;
+    api.get(`/api/songbooks/${bookId}/songs`)
+      .then(({ songs }) => setSongs(songs))
+      .catch(() => {});
+  }, [bookId]);
 
   // First line after `from` that has lyrics (same rule the autoscroll uses).
   const nextLyric = (from) => {
@@ -176,7 +193,18 @@ export default function HostSession({ code, songs, vanitySlug, onExit }) {
             )}
           </div>
         </div>
-        <p style={{ color: T.dim, fontSize: 15, marginBottom: 14 }}>Veldu lag til að byrja:</p>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
+          <p style={{ color: T.dim, fontSize: 15, flexShrink: 0 }}>Veldu lag:</p>
+          {books && books.length > 1 && (
+            <select value={bookId ?? ""} onChange={(e) => setBookId(e.target.value)} aria-label="Velja söngbók"
+              style={{ background: T.surface, color: T.ink, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 14, flex: 1, minWidth: 0 }}>
+              {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
+        </div>
+        {songs.length === 0 && books && (
+          <p style={{ color: T.faint, fontSize: 14, padding: "16px 0" }}>Þessi söngbók er tóm — veldu aðra.</p>
+        )}
         {songs.map((s) => (
           <button key={s.id} onClick={() => { setSongId(s.id); setLine(0); }} style={{
             ...btnBase, display: "block", width: "100%", textAlign: "left",

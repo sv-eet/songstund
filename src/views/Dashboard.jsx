@@ -78,6 +78,16 @@ export default function Dashboard({ user, onStartSession }) {
     } catch (e) { setErr(e.message); }
   };
 
+  const moveSong = async (idx, dir) => {
+    const j = idx + dir;
+    if (j < 0 || j >= songs.length) return;
+    const next = [...songs];
+    [next[idx], next[j]] = [next[j], next[idx]];
+    setSongs(next);
+    try { await api.put(`/api/songbooks/${bookId}/order`, { songIds: next.map((s) => s.id) }); }
+    catch (e) { setErr(e.message); }
+  };
+
   // Removes the song from this songbook only — it stays in the library.
   const removeSong = async (s) => {
     try {
@@ -162,7 +172,7 @@ export default function Dashboard({ user, onStartSession }) {
       )}
 
       <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
-        <Btn primary style={{ flex: 1, opacity: songs.length ? 1 : 0.5 }} onClick={() => onStartSession(songs)} disabled={!songs.length}>▶ Hefja söngstund</Btn>
+        <Btn primary style={{ flex: 1, opacity: songs.length ? 1 : 0.5 }} onClick={() => onStartSession(bookId)} disabled={!songs.length}>▶ Hefja söngstund</Btn>
         <Btn onClick={() => setImporting(true)}>＋ Lag</Btn>
       </div>
 
@@ -173,19 +183,25 @@ export default function Dashboard({ user, onStartSession }) {
           Söngbókin er tóm — bættu við fyrsta laginu.
         </p>
       )}
-      {songs.map((s) => (
+      {songs.map((s, idx) => (
         <div key={s.id} style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
           background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12,
-          padding: "14px 16px", marginBottom: 10,
+          padding: "14px 10px 14px 16px", marginBottom: 10,
         }}>
-          <button onClick={() => setPreview(s.id)} style={{ ...btnBase, background: "none", border: "none", textAlign: "left", color: T.ink, padding: 0, flex: 1 }}>
+          <button onClick={() => setPreview(s.id)} style={{ ...btnBase, background: "none", border: "none", textAlign: "left", color: T.ink, padding: 0, flex: 1, minWidth: 0 }}>
             <span style={{ display: "block", fontSize: 17 }}>{s.title}</span>
             <span style={{ color: T.dim, fontSize: 13 }}>{s.author || s.source}</span>
           </button>
+          <button onClick={() => moveSong(idx, -1)} disabled={idx === 0}
+            aria-label={`Færa ${s.title} upp`}
+            style={{ ...btnBase, background: "none", border: "none", color: idx === 0 ? T.line : T.dim, padding: "6px 7px", fontSize: 15 }}>↑</button>
+          <button onClick={() => moveSong(idx, 1)} disabled={idx === songs.length - 1}
+            aria-label={`Færa ${s.title} niður`}
+            style={{ ...btnBase, background: "none", border: "none", color: idx === songs.length - 1 ? T.line : T.dim, padding: "6px 7px", fontSize: 15 }}>↓</button>
           <button onClick={() => removeSong(s)}
             aria-label={`Fjarlægja ${s.title} úr söngbók`} title="Fjarlægja úr söngbók"
-            style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "4px 8px" }}>✕</button>
+            style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "6px 8px" }}>✕</button>
         </div>
       ))}
 

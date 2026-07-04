@@ -144,8 +144,10 @@ export async function handleImport(request, env, user) {
       ).bind(id, user.id, songTitle, songAuthor, key || "", source, JSON.stringify(lines)).run();
       song = { id, title: songTitle, author: songAuthor, key: key || "", source, lines };
     }
-    await env.DB.prepare("INSERT OR IGNORE INTO songbook_songs (songbook_id, song_id) VALUES (?,?)")
-      .bind(songbookId, song.id).run();
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO songbook_songs (songbook_id, song_id, position)
+       VALUES (?,?, (SELECT COALESCE(MAX(position) + 1, 0) FROM songbook_songs WHERE songbook_id = ?))`
+    ).bind(songbookId, song.id, songbookId).run();
     return song;
   };
 
