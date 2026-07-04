@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { T, mono } from "../theme.js";
 import { Tag, Btn, SongLines, btnBase } from "../ui.jsx";
 import { api, roomSocketUrl } from "../api.js";
+import { useWakeLock } from "../wakelock.js";
 
 function useHostSocket(code) {
   const wsRef = useRef(null);
@@ -86,6 +87,7 @@ export default function HostSession({ code, songs, vanitySlug, onExit }) {
   const song = songs.find((s) => s.id === songId);
   const refs = useRef([]);
   const { send, connected } = useHostSocket(code);
+  useWakeLock(); // the guitarist's phone must not lock mid-song
 
   // Push state to the room whenever it changes (and on reconnect).
   useEffect(() => {

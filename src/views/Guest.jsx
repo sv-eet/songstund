@@ -3,12 +3,15 @@ import { T } from "../theme.js";
 import { Tag, SongLines, btnBase } from "../ui.jsx";
 import { navigate } from "../router.jsx";
 import { roomSocketUrl } from "../api.js";
+import { useWakeLock } from "../wakelock.js";
 
 export default function Guest({ code }) {
   const [state, setState] = useState(null);
   const [status, setStatus] = useState("connecting"); // connecting | live | lost | ended | notfound
   const [showChords, setShowChords] = useState(false);
   const refs = useRef([]);
+  // Guests read along without touching the screen — keep it awake while live.
+  useWakeLock(status === "live");
 
   useEffect(() => {
     let closed = false, retry, ws;
