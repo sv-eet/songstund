@@ -3,11 +3,14 @@ import { T, mono } from "../theme.js";
 import { Tag, Btn, SongLines, btnBase } from "../ui.jsx";
 import { api, roomSocketUrl } from "../api.js";
 import { useWakeLock } from "../wakelock.js";
+import { transposeLines, normalize } from "../music.js";
 
-function useHostSocket(code) {
+function useHostSocket(code, onMessage) {
   const wsRef = useRef(null);
   const [connected, setConnected] = useState(false);
   const closedRef = useRef(false);
+  const handlerRef = useRef(onMessage);
+  handlerRef.current = onMessage;
 
   useEffect(() => {
     closedRef.current = false;
@@ -17,6 +20,11 @@ function useHostSocket(code) {
       const ws = new WebSocket(roomSocketUrl(code, true));
       wsRef.current = ws;
       ws.onopen = () => setConnected(true);
+      ws.onmessage = (e) => {
+        if (e.data === "pong") return;
+        let msg; try { msg = JSON.parse(e.data); } catch { return; }
+        handlerRef.current?.(msg);
+      };
       ws.onclose = () => {
         setConnected(false);
         if (!closedRef.current) retry = setTimeout(connect, 2000);
@@ -89,11 +97,38 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
   const [showQR, setShowQR] = useState(false);
   const [adapted, setAdapted] = useState(null); // flashes when tap-tempo adjusts the speed
   const [beat, setBeat] = useState(0); // bumped on manual advance to restart the auto timer
-  const song = songs.find((s) => s.id === songId);
+  const [guests, setGuests] = useState(0);
+  const [requests, setRequests] = useState([]);
+  const [recovered, setRecovered] = useState(null); // song adopted from the room on resume
+  const [offsets, setOffsets] = useState({}); // per-song transposition (semitones)
   const refs = useRef([]);
   const tapsRef = useRef([]);
-  const { send, connected } = useHostSocket(code);
+  const songIdRef = useRef(null);
+
+  const adoptedRef = useRef(false);
+  const onRoomMessage = (msg) => {
+    if (msg.type === "presence") setGuests(msg.guests ?? 0);
+    else if (msg.type === "requests") setRequests(msg.requests ?? []);
+    else if (msg.type === "state" && !adoptedRef.current) {
+      // First state from the room: if it's mid-song, we're resuming a
+      // running session — adopt what the room is showing.
+      adoptedRef.current = true;
+      if (msg.state?.song && songIdRef.current === null) {
+        const id = msg.state.songId ?? "recovered";
+        setRecovered({ id, ...msg.state.song });
+        setSongId(id);
+        setLine(msg.state.line ?? 0);
+      }
+    }
+  };
+  const { send, connected } = useHostSocket(code, onRoomMessage);
   useWakeLock(); // the guitarist's phone must not lock mid-song
+
+  const song = songs.find((s) => s.id === songId)
+    ?? (recovered && recovered.id === songId ? recovered : null);
+  songIdRef.current = songId;
+  const offset = offsets[songId] ?? 0;
+  const playedLines = song ? transposeLines(song.lines, offset) : null;
 
   // The session owns its songbook selection so the player can switch
   // books mid-session without ending it.
@@ -122,9 +157,9 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
   useEffect(() => { setGpResults(null); setSearchErr(""); }, [query]);
 
   const isUrl = /^https?:\/\//i.test(query.trim());
-  const q = query.trim().toLowerCase();
+  const q = normalize(query.trim());
   const localMatches = q && !isUrl
-    ? library.filter((s) => `${s.title} ${s.author}`.toLowerCase().includes(q)).slice(0, 12)
+    ? library.filter((s) => normalize(`${s.title} ${s.author}`).includes(q)).slice(0, 12)
     : [];
 
   const playSong = (id) => { setSongId(id); setLine(0); setQuery(""); };
@@ -152,6 +187,23 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
       playSong(imported[0].id);
     } catch (e) { setSearchErr(e.message); }
     setBusySearch(false);
+  };
+
+  // Guest requests: a URL imports and plays in one tap; free text drops
+  // into the search box so the player picks the right match.
+  const acceptRequest = (r) => {
+    send({ type: "request_done", id: r.id });
+    if (/^https?:\/\//i.test(r.text.trim())) importAndPlay({ url: r.text.trim() });
+    else setQuery(r.text);
+  };
+  const dismissRequest = (r) => send({ type: "request_done", id: r.id });
+
+  const bumpOffset = (d) => {
+    if (!songId) return;
+    setOffsets((o) => {
+      const next = Math.max(-11, Math.min(11, (o[songId] ?? 0) + d));
+      return { ...o, [songId]: next };
+    });
   };
 
   const searchGuitarparty = async () => {
@@ -192,12 +244,15 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
     }
   };
 
-  // Push state to the room whenever it changes (and on reconnect).
+  // Push state to the room whenever it changes (and on reconnect). The
+  // pushed lines are transposed, so guests see the played key.
+  const lineRef = useRef(0);
+  lineRef.current = line;
   useEffect(() => {
-    if (!connected) return;
-    if (song) send({ type: "select_song", songId: song.id, song: { title: song.title, author: song.author, lines: song.lines } });
-    else send({ type: "clear_song" });
-  }, [connected, songId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!connected || !song) return;
+    send({ type: "select_song", songId: song.id, song: { title: song.title, author: song.author, lines: playedLines } });
+    if (lineRef.current) send({ type: "set_line", line: lineRef.current });
+  }, [connected, songId, offset]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (connected && song) send({ type: "set_line", line }); }, [connected, line]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -228,10 +283,30 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
     return (
       <div style={{ flex: 1, maxWidth: 560, width: "100%", margin: "0 auto", padding: "22px 24px 60px" }}>
         <button onClick={endSession} style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: 0 }}>← Loka söngstund</button>
-        <h2 style={{ fontSize: 26, fontWeight: 500, margin: "18px 0 14px" }}>
+        <h2 style={{ fontSize: 26, fontWeight: 500, margin: "18px 0 4px" }}>
           Söngstund í gangi
           {!connected && <span style={{ color: T.red, fontSize: 14, marginLeft: 10 }}>· tengist…</span>}
         </h2>
+        <p style={{ marginBottom: 14 }}>
+          <Tag color={guests > 0 ? T.live : T.faint}>{guests > 0 ? `♪ ${guests} syngja með` : "enginn gestur enn"}</Tag>
+        </p>
+
+        {requests.length > 0 && (
+          <div style={{ background: T.surface, border: `1px solid ${T.amberDeep}`, borderRadius: 12, padding: "10px 14px 4px", marginBottom: 14 }}>
+            <Tag color={T.amber}>óskalög gesta</Tag>
+            {requests.map((r) => (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.line}` }}>
+                <span style={{ flex: 1, fontSize: 15, wordBreak: "break-word", minWidth: 0 }}>{r.text}</span>
+                <button onClick={() => acceptRequest(r)} disabled={busySearch} style={{
+                  ...btnBase, background: T.amber, color: "#221708", fontWeight: 600,
+                  padding: "7px 12px", fontSize: 13, borderColor: T.amber, flexShrink: 0,
+                }}>{/^https?:\/\//i.test(r.text.trim()) ? "Sækja og spila" : "Leita"}</button>
+                <button onClick={() => dismissRequest(r)} aria-label="Hafna ósk"
+                  style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "4px 6px", flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 18, alignItems: "center", background: T.surface, border: `1px solid ${T.line}`, borderRadius: 14, padding: 18, marginBottom: 22, flexWrap: "wrap" }}>
           <QRCodeImg code={code} />
           <div>
@@ -320,7 +395,22 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
       <div style={{ padding: "18px 24px 8px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button onClick={() => { setSongId(null); setAuto(false); }} style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: 0 }}>← Lagaval</button>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {requests.length > 0 && (
+              <button onClick={() => { setSongId(null); setAuto(false); }} title="Óskalög bíða"
+                style={{ ...btnBase, background: "none", borderColor: T.amberDeep, color: T.amber, padding: "3px 9px", fontSize: 13 }}>
+                ♪ {requests.length}
+              </button>
+            )}
+            <span style={{ display: "flex", alignItems: "center", gap: 4, color: T.dim, fontSize: 13 }} title="Tónflutningur">
+              <button onClick={() => bumpOffset(-1)} aria-label="Tónflytja niður"
+                style={{ ...btnBase, background: "none", color: T.dim, padding: "2px 8px", fontSize: 14 }}>−</button>
+              <span style={{ fontFamily: mono, color: offset ? T.amber : T.faint, minWidth: 24, textAlign: "center" }}>
+                {offset > 0 ? `+${offset}` : offset < 0 ? offset : "♯♭"}
+              </span>
+              <button onClick={() => bumpOffset(1)} aria-label="Tónflytja upp"
+                style={{ ...btnBase, background: "none", color: T.dim, padding: "2px 8px", fontSize: 14 }}>＋</button>
+            </span>
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: T.dim, fontSize: 13, cursor: "pointer" }}>
               <input type="checkbox" checked={showChords} onChange={(e) => setShowChords(e.target.checked)} style={{ accentColor: T.amber }} />
               Hljómar
@@ -337,7 +427,7 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
       {showQR && <QROverlay code={code} vanitySlug={vanitySlug} onClose={() => setShowQR(false)} />}
 
       <div style={{ flex: 1, overflowY: "auto", padding: "10px 24px 150px" }}>
-        <SongLines song={song} current={line} showChords={showChords} onTapLine={advanceTo} refs={refs} />
+        <SongLines song={{ ...song, lines: playedLines }} current={line} showChords={showChords} onTapLine={advanceTo} refs={refs} />
       </div>
 
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, #171310 30%)", padding: "26px 24px 20px" }}>

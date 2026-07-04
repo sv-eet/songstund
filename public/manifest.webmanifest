@@ -1,0 +1,15 @@
+{
+  "name": "Söngstund",
+  "short_name": "Söngstund",
+  "description": "Einn spilar. Allir syngja. Gestir fylgja textanum í rauntíma.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171310",
+  "theme_color": "#171310",
+  "lang": "is",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

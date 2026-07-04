@@ -257,6 +257,18 @@ async function handleApi(request, env, url) {
   }
 
   // ── sessions ──
+  if (pathname === "/api/sessions/active" && method === "GET") {
+    const row = await env.DB.prepare(
+      "SELECT code, created_at FROM sessions WHERE user_id = ? AND ended_at IS NULL ORDER BY created_at DESC LIMIT 1"
+    ).bind(user.id).first();
+    return json({ session: row ?? null });
+  }
+  if (pathname === "/api/sessions" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      "SELECT code, created_at, ended_at, peak_guests FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 15"
+    ).bind(user.id).all();
+    return json({ sessions: results });
+  }
   if (pathname === "/api/sessions" && method === "POST") {
     // End any previous active session for this user (one live session per player).
     await env.DB.prepare("UPDATE sessions SET ended_at = datetime('now') WHERE user_id = ? AND ended_at IS NULL")
@@ -302,7 +314,7 @@ async function handleApi(request, env, url) {
     }
     if (pathname === "/api/admin/sessions" && method === "GET") {
       const { results } = await env.DB.prepare(
-        `SELECT s.code, s.created_at, s.ended_at, u.email FROM sessions s
+        `SELECT s.code, s.created_at, s.ended_at, s.peak_guests, u.email FROM sessions s
          JOIN "user" u ON u.id = s.user_id ORDER BY s.created_at DESC LIMIT 100`
       ).all();
       return json({ sessions: results });

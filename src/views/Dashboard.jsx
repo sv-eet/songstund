@@ -6,7 +6,7 @@ import { api } from "../api.js";
 import { authClient } from "../auth.js";
 import ImportModal from "./ImportModal.jsx";
 
-export default function Dashboard({ user, onStartSession }) {
+export default function Dashboard({ user, onStartSession, onResume }) {
   const [books, setBooks] = useState(null);
   const [bookId, setBookId] = useState(null);
   const [songs, setSongs] = useState([]);
@@ -30,13 +30,21 @@ export default function Dashboard({ user, onStartSession }) {
   };
 
   const pending = !user.approved && !user.is_admin;
+  const [active, setActive] = useState(null);
+  const [history, setHistory] = useState([]);
 
   useEffect(() => {
     if (pending) return;
     api.get("/api/songbooks")
       .then(({ songbooks }) => { setBooks(songbooks); setBookId((id) => id ?? songbooks[0]?.id); })
       .catch((e) => setErr(e.message));
+    api.get("/api/sessions/active").then(({ session }) => setActive(session)).catch(() => {});
+    api.get("/api/sessions").then(({ sessions }) => setHistory(sessions)).catch(() => {});
   }, [pending]);
+
+  const endActive = async () => {
+    try { await api.del(`/api/sessions/${active.code}`); setActive(null); } catch (e) { setErr(e.message); }
+  };
 
   const loadSongs = useCallback(() => {
     if (!bookId) return;
@@ -171,6 +179,16 @@ export default function Dashboard({ user, onStartSession }) {
         </div>
       )}
 
+      {active && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.surface, border: `1px solid ${T.amberDeep}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+          <span style={{ flex: 1, fontSize: 14, color: T.dim }}>
+            Söngstund <b style={{ fontFamily: mono, color: T.amber, letterSpacing: "0.15em" }}>{active.code}</b> er enn í gangi
+          </span>
+          <Btn primary onClick={() => onResume(active.code, bookId)} style={{ padding: "9px 14px", fontSize: 14, flexShrink: 0 }}>Halda áfram</Btn>
+          <button onClick={endActive} style={{ ...btnBase, background: "none", border: "none", color: T.red, fontSize: 13, padding: "4px 6px", flexShrink: 0 }}>Loka</button>
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
         <Btn primary style={{ flex: 1, opacity: songs.length ? 1 : 0.5 }} onClick={() => onStartSession(bookId)} disabled={!songs.length}>▶ Hefja söngstund</Btn>
         <Btn onClick={() => setImporting(true)}>＋ Lag</Btn>
@@ -204,6 +222,21 @@ export default function Dashboard({ user, onStartSession }) {
             style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "6px 8px" }}>✕</button>
         </div>
       ))}
+
+      {history.length > 0 && (
+        <div style={{ marginTop: 34 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 500, color: T.dim, marginBottom: 6 }}>Fyrri söngstundir</h3>
+          {history.map((h) => (
+            <div key={h.code + h.created_at} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 2px", borderBottom: `1px solid ${T.line}`, fontSize: 13 }}>
+              <span style={{ fontFamily: mono, color: T.faint }}>{String(h.created_at).slice(0, 16).replace("T", " ")}</span>
+              <span style={{ fontFamily: mono, color: T.dim, letterSpacing: "0.1em" }}>{h.code}</span>
+              <span style={{ flex: 1 }} />
+              <span style={{ color: h.peak_guests > 0 ? T.live : T.faint }}>♪ {h.peak_guests} {h.peak_guests === 1 ? "gestur" : "gestir"}</span>
+              {!h.ended_at && <span style={{ color: T.amber }}>í gangi</span>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {importing && (
         <ImportModal songbookId={bookId} currentIds={songs.map((s) => s.id)}

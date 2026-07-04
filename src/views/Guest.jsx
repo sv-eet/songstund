@@ -9,7 +9,11 @@ export default function Guest({ code }) {
   const [state, setState] = useState(null);
   const [status, setStatus] = useState("connecting"); // connecting | live | lost | ended | notfound
   const [showChords, setShowChords] = useState(false);
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqText, setReqText] = useState("");
+  const [reqNote, setReqNote] = useState(null); // "sent" | error text
   const refs = useRef([]);
+  const wsRef = useRef(null);
   // Guests read along without touching the screen — keep it awake while live.
   useWakeLock(status === "live");
 
@@ -19,12 +23,19 @@ export default function Guest({ code }) {
     const connect = () => {
       if (closed) return;
       ws = new WebSocket(roomSocketUrl(code));
+      wsRef.current = ws;
       ws.onopen = () => { failures = 0; setStatus("live"); };
       ws.onmessage = (e) => {
         if (e.data === "pong") return;
         let msg; try { msg = JSON.parse(e.data); } catch { return; }
         if (msg.type === "state") setState(msg.state);
         if (msg.type === "ended") { setStatus("ended"); closed = true; }
+        if (msg.type === "request_ok") {
+          setReqNote("sent");
+          setReqText("");
+          setTimeout(() => { setReqNote(null); setReqOpen(false); }, 2500);
+        }
+        if (msg.type === "request_err") setReqNote(msg.message ?? "Tókst ekki — reyndu aftur.");
       };
       ws.onclose = () => {
         if (closed) return;
@@ -38,6 +49,13 @@ export default function Guest({ code }) {
     const ping = setInterval(() => { if (ws?.readyState === WebSocket.OPEN) ws.send("ping"); }, 20000);
     return () => { closed = true; clearInterval(ping); clearTimeout(retry); ws?.close(); };
   }, [code]);
+
+  const sendRequest = () => {
+    const text = reqText.trim();
+    if (!text || wsRef.current?.readyState !== WebSocket.OPEN) return;
+    setReqNote(null);
+    wsRef.current.send(JSON.stringify({ type: "request", text }));
+  };
 
   useEffect(() => {
     if (state?.song) refs.current[state.line]?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -87,6 +105,41 @@ export default function Guest({ code }) {
           <h2 style={{ fontSize: 22, fontWeight: 500, margin: "10px 0 2px" }}>{state.song.title}</h2>
           <p style={{ color: T.faint, fontSize: 13, marginBottom: 22 }}>{state.song.author}</p>
           <SongLines song={state.song} current={state.line} showChords={showChords} refs={refs} dimPast />
+        </div>
+      )}
+
+      {status === "live" && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, #171310 55%)", padding: "22px 20px 14px" }}>
+          <div style={{ maxWidth: 520, margin: "0 auto" }}>
+            {reqOpen ? (
+              <div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={reqText} onChange={(e) => setReqText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && sendRequest()}
+                    placeholder="Lag, flytjandi … eða guitarparty-slóð"
+                    aria-label="Óskalag"
+                    style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 10, color: T.ink, padding: "11px 13px", fontSize: 16, flex: 1, font: "inherit", minWidth: 0 }} />
+                  <button onClick={sendRequest} disabled={!reqText.trim()} style={{
+                    ...btnBase, background: T.amber, color: "#221708", fontWeight: 600,
+                    padding: "11px 15px", fontSize: 14, borderColor: T.amber, flexShrink: 0,
+                    opacity: reqText.trim() ? 1 : 0.5,
+                  }}>Senda</button>
+                  <button onClick={() => { setReqOpen(false); setReqNote(null); }} aria-label="Hætta við ósk"
+                    style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "0 4px", flexShrink: 0 }}>✕</button>
+                </div>
+                {reqNote && (
+                  <p style={{ color: reqNote === "sent" ? T.live : T.red, fontSize: 13, marginTop: 8, textAlign: "center" }}>
+                    {reqNote === "sent" ? "Óskin er komin til gítarleikarans ♪" : reqNote}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <button onClick={() => setReqOpen(true)} style={{
+                ...btnBase, display: "block", margin: "0 auto", background: "rgba(36,29,24,0.9)",
+                color: T.dim, padding: "9px 18px", fontSize: 14,
+              }}>♪ Óska eftir lagi</button>
+            )}
+          </div>
         </div>
       )}
     </div>

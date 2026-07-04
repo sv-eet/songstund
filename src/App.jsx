@@ -40,7 +40,8 @@ export default function App() {
   } else if (path === "/app") {
     view = isPending ? null : !session ? <Redirect to="/login" /> : host
       ? <HostSession code={host.code} initialBookId={host.bookId} vanitySlug={session.user.vanity_slug} onExit={() => setHost(null)} />
-      : <Dashboard user={session.user} onStartSession={startSession} />;
+      : <Dashboard user={session.user} onStartSession={startSession}
+          onResume={(code, bookId) => setHost({ code, bookId })} />;
   } else if (path === "/admin") {
     view = isPending ? null : session?.user?.is_admin ? <Admin /> : <Redirect to={session ? "/app" : "/login"} />;
   } else if (path === "/") {
