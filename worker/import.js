@@ -84,17 +84,10 @@ export function bracketedToLines(text) {
   return out;
 }
 
-const GP_UA = { "User-Agent": "Mozilla/5.0 (compatible; SongstundBot/1.0; +https://songstund.samskiptalausnir.is)" };
+export const GP_UA = { "User-Agent": "Mozilla/5.0 (compatible; SongstundBot/1.0; +https://songstund.samskiptalausnir.is)" };
 
-/* guitarparty.com song pages are empty shells filled client-side; the song
-   lives at /api/v3/core/songs/{id}/ in bracket format. */
-async function importFromGuitarparty(url) {
-  const pageRes = await fetch(url, { headers: GP_UA, redirect: "follow" });
-  if (!pageRes.ok) return { error: `Gat ekki sótt síðuna (HTTP ${pageRes.status}).` };
-  const html = await pageRes.text();
-  const id = html.match(/data-songcontainer[^>]*data-id="(\d+)"/)?.[1]
-    ?? html.match(/data-id="(\d+)"[^>]*data-songcontainer/)?.[1];
-  if (!id) return { error: "Fann ekki lagið á síðunni — er slóðin á lagasíðu?" };
+/* Songs live at /api/v3/core/songs/{id}/ in bracket format. */
+export async function gpSongById(id) {
   const apiRes = await fetch(`https://www.guitarparty.com/api/v3/core/songs/${id}/`, { headers: GP_UA });
   if (!apiRes.ok) return { error: "Gat ekki sótt lagið frá Guitarparty — það gæti verið læst innskráningu." };
   const data = await apiRes.json();
@@ -103,6 +96,18 @@ async function importFromGuitarparty(url) {
   if (!lines.length) return { error: "Lagið reyndist tómt." };
   const author = [...new Set((data.authors ?? []).map((a) => a?.author?.name).filter(Boolean))].join(" · ");
   return { title: data.title ?? "", author, key: data.key ?? "", lines };
+}
+
+/* guitarparty.com song pages are empty shells filled client-side — read
+   the song id out of the page, then fetch the song from their API. */
+async function importFromGuitarparty(url) {
+  const pageRes = await fetch(url, { headers: GP_UA, redirect: "follow" });
+  if (!pageRes.ok) return { error: `Gat ekki sótt síðuna (HTTP ${pageRes.status}).` };
+  const html = await pageRes.text();
+  const id = html.match(/data-songcontainer[^>]*data-id="(\d+)"/)?.[1]
+    ?? html.match(/data-id="(\d+)"[^>]*data-songcontainer/)?.[1];
+  if (!id) return { error: "Fann ekki lagið á síðunni — er slóðin á lagasíðu?" };
+  return gpSongById(id);
 }
 
 export async function handleImport(request, env, user) {
@@ -173,6 +178,20 @@ export async function handleImport(request, env, user) {
     ).bind(user.id, kind, source, 1,
       `'${source}' — ${inserted.length} lög fundust`, totalLines, totalChords).run();
     return Response.json({ songs: inserted });
+  }
+
+  // Direct import by Guitarparty song id (from the in-session search).
+  if (body.gpId) {
+    const gpId = String(body.gpId).replace(/\D/g, "");
+    kind = "url"; source = `guitarparty.com/songs/${gpId}`;
+    if (!gpId) return fail(kind, source, "Ógilt lag.");
+    let gp;
+    try { gp = await gpSongById(gpId); }
+    catch { return fail(kind, source, "Gat ekki sótt lagið frá Guitarparty."); }
+    if (gp.error) return fail(kind, source, gp.error);
+    const song = await insertSong(title || gp.title, author || gp.author, gp.key, "guitarparty.com", gp.lines);
+    await log(kind, source, true, `'${song.title}' — ${gp.lines.length} línur, ${countChordLines(gp.lines)} hljómalínur`, gp.lines);
+    return Response.json({ songs: [song] });
   }
 
   if (body.url) {

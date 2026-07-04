@@ -109,6 +109,60 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
       .catch(() => {});
   }, [bookId]);
 
+  // ── request handling: search the library, Guitarparty, or a pasted URL ──
+  const [library, setLibrary] = useState([]);
+  const [query, setQuery] = useState("");
+  const [gpResults, setGpResults] = useState(null);
+  const [busySearch, setBusySearch] = useState(false);
+  const [searchErr, setSearchErr] = useState("");
+
+  useEffect(() => {
+    api.get("/api/songs").then(({ songs }) => setLibrary(songs)).catch(() => {});
+  }, []);
+  useEffect(() => { setGpResults(null); setSearchErr(""); }, [query]);
+
+  const isUrl = /^https?:\/\//i.test(query.trim());
+  const q = query.trim().toLowerCase();
+  const localMatches = q && !isUrl
+    ? library.filter((s) => `${s.title} ${s.author}`.toLowerCase().includes(q)).slice(0, 12)
+    : [];
+
+  const playSong = (id) => { setSongId(id); setLine(0); setQuery(""); };
+
+  // Library song that may not be in the current book yet: link it in,
+  // refresh the book, start playing.
+  const playFromLibrary = async (s) => {
+    try {
+      if (!songs.find((x) => x.id === s.id)) {
+        await api.post(`/api/songbooks/${bookId}/songs`, { songId: s.id });
+        const { songs: fresh } = await api.get(`/api/songbooks/${bookId}/songs`);
+        setSongs(fresh);
+      }
+      playSong(s.id);
+    } catch (e) { setSearchErr(e.message); }
+  };
+
+  const importAndPlay = async (payload) => {
+    setBusySearch(true); setSearchErr("");
+    try {
+      const { songs: imported } = await api.post("/api/import", { songbookId: bookId, ...payload });
+      const { songs: fresh } = await api.get(`/api/songbooks/${bookId}/songs`);
+      setSongs(fresh);
+      api.get("/api/songs").then(({ songs }) => setLibrary(songs)).catch(() => {});
+      playSong(imported[0].id);
+    } catch (e) { setSearchErr(e.message); }
+    setBusySearch(false);
+  };
+
+  const searchGuitarparty = async () => {
+    setBusySearch(true); setSearchErr("");
+    try {
+      const { results } = await api.get(`/api/gp-search?q=${encodeURIComponent(query.trim())}`);
+      setGpResults(results);
+    } catch (e) { setSearchErr(e.message); }
+    setBusySearch(false);
+  };
+
   // First line after `from` that has lyrics (same rule the autoscroll uses).
   const nextLyric = (from) => {
     if (!song) return from;
@@ -193,24 +247,70 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
             )}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
-          <p style={{ color: T.dim, fontSize: 15, flexShrink: 0 }}>Veldu lag:</p>
-          {books && books.length > 1 && (
-            <select value={bookId ?? ""} onChange={(e) => setBookId(e.target.value)} aria-label="Velja söngbók"
-              style={{ background: T.surface, color: T.ink, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 14, flex: 1, minWidth: 0 }}>
-              {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          )}
-        </div>
-        {songs.length === 0 && books && (
-          <p style={{ color: T.faint, fontSize: 14, padding: "16px 0" }}>Þessi söngbók er tóm — veldu aðra.</p>
+        <input value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="Leita að lagi … eða líma slóð"
+          aria-label="Leita að lagi eða líma vefslóð"
+          style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 10, color: T.ink, padding: "12px 15px", fontSize: 16, width: "100%", font: "inherit", marginBottom: 14 }} />
+
+        {searchErr && <p style={{ color: T.red, fontSize: 14, marginBottom: 12 }}>{searchErr}</p>}
+
+        {q ? (
+          <div>
+            {isUrl ? (
+              <Btn primary disabled={busySearch} onClick={() => importAndPlay({ url: query.trim() })} style={{ width: "100%" }}>
+                {busySearch ? "Sæki og greini…" : "Sækja lag af slóðinni og spila"}
+              </Btn>
+            ) : (
+              <>
+                {localMatches.length > 0 && <Tag>úr safninu þínu</Tag>}
+                {localMatches.map((s) => (
+                  <button key={s.id} onClick={() => playFromLibrary(s)} style={{
+                    ...btnBase, display: "block", width: "100%", textAlign: "left",
+                    background: T.surface, color: T.ink, padding: "13px 15px", margin: "8px 0", fontSize: 16,
+                  }}>{s.title}<span style={{ color: T.dim, fontSize: 13, display: "block" }}>{s.author || s.source}</span></button>
+                ))}
+                {q.length >= 2 && gpResults === null && (
+                  <Btn disabled={busySearch} onClick={searchGuitarparty} style={{ width: "100%", marginTop: 8 }}>
+                    {busySearch ? "Leita…" : "Leita á Guitarparty ↗"}
+                  </Btn>
+                )}
+                {gpResults?.length === 0 && <p style={{ color: T.faint, fontSize: 14, marginTop: 10 }}>Ekkert fannst á Guitarparty.</p>}
+                {gpResults?.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <Tag color={T.amberDeep}>guitarparty.com</Tag>
+                    {gpResults.map((s) => (
+                      <button key={s.id} disabled={busySearch} onClick={() => importAndPlay({ gpId: s.id })} style={{
+                        ...btnBase, display: "block", width: "100%", textAlign: "left",
+                        background: T.surface, color: T.ink, padding: "13px 15px", margin: "8px 0", fontSize: 16, opacity: busySearch ? 0.6 : 1,
+                      }}>{s.title}<span style={{ color: T.dim, fontSize: 13, display: "block" }}>{s.author}</span></button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
+              <p style={{ color: T.dim, fontSize: 15, flexShrink: 0 }}>Veldu lag:</p>
+              {books && books.length > 1 && (
+                <select value={bookId ?? ""} onChange={(e) => setBookId(e.target.value)} aria-label="Velja söngbók"
+                  style={{ background: T.surface, color: T.ink, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 10px", font: "inherit", fontSize: 14, flex: 1, minWidth: 0 }}>
+                  {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              )}
+            </div>
+            {songs.length === 0 && books && (
+              <p style={{ color: T.faint, fontSize: 14, padding: "16px 0" }}>Þessi söngbók er tóm — veldu aðra eða leitaðu að lagi.</p>
+            )}
+            {songs.map((s) => (
+              <button key={s.id} onClick={() => { setSongId(s.id); setLine(0); }} style={{
+                ...btnBase, display: "block", width: "100%", textAlign: "left",
+                background: T.surface, color: T.ink, padding: "15px 17px", marginBottom: 10, fontSize: 17,
+              }}>{s.title}<span style={{ color: T.dim, fontSize: 13, display: "block" }}>{s.author || s.source}</span></button>
+            ))}
+          </>
         )}
-        {songs.map((s) => (
-          <button key={s.id} onClick={() => { setSongId(s.id); setLine(0); }} style={{
-            ...btnBase, display: "block", width: "100%", textAlign: "left",
-            background: T.surface, color: T.ink, padding: "15px 17px", marginBottom: 10, fontSize: 17,
-          }}>{s.title}<span style={{ color: T.dim, fontSize: 13, display: "block" }}>{s.author || s.source}</span></button>
-        ))}
       </div>
     );
   }

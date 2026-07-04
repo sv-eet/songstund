@@ -1,5 +1,5 @@
 import { getAuth, getSessionUser, RESERVED_SLUGS } from "./auth.js";
-import { handleImport } from "./import.js";
+import { handleImport, GP_UA } from "./import.js";
 export { SessionRoom } from "./room.js";
 
 const CODE_ALPHABET = "BDFGHJKLMNPRSTV"; // no vowels — avoids real words
@@ -236,6 +236,24 @@ async function handleApi(request, env, url) {
   // ── import ──
   if (pathname === "/api/import" && method === "POST") {
     return handleImport(request, env, user);
+  }
+
+  // ── online song search (Guitarparty) ──
+  if (pathname === "/api/gp-search" && method === "GET") {
+    const q = url.searchParams.get("q")?.trim();
+    if (!q) return json({ results: [] });
+    try {
+      const r = await fetch(`https://www.guitarparty.com/api/v3/core/search/?q=${encodeURIComponent(q)}`, { headers: GP_UA });
+      if (!r.ok) throw 0;
+      const data = await r.json();
+      const results = Object.values(data)
+        .filter((x) => x?.type === "Song" && x.id)
+        .slice(0, 20)
+        .map((s) => ({ id: s.id, title: s.title ?? "", author: s.author ?? "" }));
+      return json({ results });
+    } catch {
+      return json({ error: "Leit á Guitarparty tókst ekki — reyndu aftur." }, 502);
+    }
   }
 
   // ── sessions ──
