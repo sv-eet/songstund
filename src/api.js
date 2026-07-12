@@ -18,7 +18,8 @@ export const api = {
   del: (p) => req("DELETE", p),
 };
 
-export function roomSocketUrl(code, host = false) {
+export function roomSocketUrl(code, opts = {}) {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/api/room/${code}/ws${host ? "?role=host" : ""}`;
+  const params = opts.host ? "?role=host" : opts.key ? `?key=${encodeURIComponent(opts.key)}` : "";
+  return `${proto}//${location.host}/api/room/${code}/ws${params}`;
 }

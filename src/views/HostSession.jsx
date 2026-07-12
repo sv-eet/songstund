@@ -17,7 +17,7 @@ function useHostSocket(code, onMessage) {
     let retry;
     const connect = () => {
       if (closedRef.current) return;
-      const ws = new WebSocket(roomSocketUrl(code, true));
+      const ws = new WebSocket(roomSocketUrl(code, { host: true }));
       wsRef.current = ws;
       ws.onopen = () => setConnected(true);
       ws.onmessage = (e) => {
@@ -85,7 +85,7 @@ function QROverlay({ code, vanitySlug, onClose }) {
   );
 }
 
-export default function HostSession({ code, initialBookId, vanitySlug, onExit }) {
+export default function HostSession({ code, initialBookId, cohostKey, vanitySlug, onExit }) {
   const [books, setBooks] = useState(null);
   const [bookId, setBookId] = useState(initialBookId ?? null);
   const [songs, setSongs] = useState([]);
@@ -99,25 +99,39 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
   const [beat, setBeat] = useState(0); // bumped on manual advance to restart the auto timer
   const [guests, setGuests] = useState(0);
   const [requests, setRequests] = useState([]);
+  const [next, setNext] = useState(null);
+  const [cohostCopied, setCohostCopied] = useState(false);
   const [recovered, setRecovered] = useState(null); // song adopted from the room on resume
   const [offsets, setOffsets] = useState({}); // per-song transposition (semitones)
   const refs = useRef([]);
   const tapsRef = useRef([]);
   const songIdRef = useRef(null);
+  const localActionRef = useRef(0);
 
   const adoptedRef = useRef(false);
   const onRoomMessage = (msg) => {
     if (msg.type === "presence") setGuests(msg.guests ?? 0);
     else if (msg.type === "requests") setRequests(msg.requests ?? []);
-    else if (msg.type === "state" && !adoptedRef.current) {
-      // First state from the room: if it's mid-song, we're resuming a
-      // running session — adopt what the room is showing.
+    else if (msg.type === "next") setNext(msg.next);
+    else if (msg.type === "state") {
+      const first = !adoptedRef.current;
       adoptedRef.current = true;
-      if (msg.state?.song && songIdRef.current === null) {
+      if (msg.state?.song && songIdRef.current === null && first) {
+        // First state from the room mid-song: resuming — adopt it.
         const id = msg.state.songId ?? "recovered";
         setRecovered({ id, ...msg.state.song });
         setSongId(id);
         setLine(msg.state.line ?? 0);
+      } else if (msg.state?.song && songIdRef.current !== null && msg.state.songId !== songIdRef.current) {
+        // The cohost played the queued song — follow along.
+        const id = msg.state.songId ?? "recovered";
+        setRecovered({ id, ...msg.state.song });
+        setSongId(id);
+        setLine(msg.state.line ?? 0);
+      } else if (msg.state?.songId === songIdRef.current && Number.isInteger(msg.state.line)) {
+        // The cohost moved the line — our screen follows too. Ignore
+        // echoes of our own recent taps so fast tapping doesn't jitter.
+        if (Date.now() - localActionRef.current > 800) setLine(msg.state.line);
       }
     }
   };
@@ -143,6 +157,40 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
       .then(({ songs }) => setSongs(songs))
       .catch(() => {});
   }, [bookId]);
+
+  // Keep the room's song list in sync so the cohost can queue from it.
+  useEffect(() => {
+    if (!connected || !songs.length) return;
+    send({ type: "set_songlist", songs: songs.map((s) => ({ id: s.id, title: s.title, author: s.author })) });
+  }, [connected, songs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const copyCohostLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${location.origin}/s/${code}?f=${cohostKey}`);
+      setCohostCopied(true);
+      setTimeout(() => setCohostCopied(false), 2500);
+    } catch {}
+  };
+
+  const playNext = () => {
+    if (!next) return;
+    send({ type: "play_next" });
+    // Switch locally right away when the queued song is in the open book.
+    if (songs.find((s) => s.id === next.songId)) {
+      localActionRef.current = Date.now();
+      setSongId(next.songId);
+      setLine(0);
+    }
+  };
+
+  const nextBanner = next && (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "9px 12px", marginBottom: 12 }}>
+      <span style={{ flex: 1, fontSize: 14, color: T.dim, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        Næst: <b style={{ color: T.ink }}>{next.title}</b>
+      </span>
+      <Btn primary onClick={playNext} style={{ padding: "8px 13px", fontSize: 13, flexShrink: 0 }}>▶ Spila</Btn>
+    </div>
+  );
 
   // ── request handling: search the library, Guitarparty, or a pasted URL ──
   const [library, setLibrary] = useState([]);
@@ -227,6 +275,7 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
      2–3 times in a row teaches the autoscroll your pace. */
   const advanceTo = (n) => {
     const now = Date.now();
+    localActionRef.current = now;
     const consecutive = song && n !== line && n === nextLyric(line);
     setLine(n);
     setBeat((b) => b + 1);
@@ -260,6 +309,7 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
     // `beat` restarts the timer on every manual advance, so the next
     // automatic step is measured from the guitarist's last tap.
     const t = setInterval(() => {
+      localActionRef.current = Date.now();
       setLine((l) => {
         let n = l + 1;
         while (n < song.lines.length && !song.lines[n].t) n++;
@@ -322,6 +372,23 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
             )}
           </div>
         </div>
+
+        {cohostKey && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, padding: "10px 14px", marginBottom: 14 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Tag>forsöngvari</Tag>
+              <div style={{ color: T.faint, fontSize: 12, marginTop: 2 }}>
+                Traustur aðili fær hlekk — getur flett línum og raðað næsta lagi.
+              </div>
+            </div>
+            <button onClick={copyCohostLink} style={{
+              ...btnBase, background: "none", color: cohostCopied ? T.live : T.dim,
+              padding: "8px 13px", fontSize: 13, flexShrink: 0,
+            }}>{cohostCopied ? "Afritað ✓" : "Afrita hlekk"}</button>
+          </div>
+        )}
+
+        {nextBanner}
         <input value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder="Leita að lagi … eða líma slóð"
           aria-label="Leita að lagi eða líma vefslóð"
@@ -421,7 +488,8 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
             </button>
           </div>
         </div>
-        <h2 style={{ fontSize: 22, fontWeight: 500, marginTop: 12 }}>{song.title}</h2>
+        <h2 style={{ fontSize: 22, fontWeight: 500, margin: "12px 0 10px" }}>{song.title}</h2>
+        {nextBanner}
       </div>
 
       {showQR && <QROverlay code={code} vanitySlug={vanitySlug} onClose={() => setShowQR(false)} />}

@@ -184,7 +184,7 @@ export default function Dashboard({ user, onStartSession, onResume }) {
           <span style={{ flex: 1, fontSize: 14, color: T.dim }}>
             Söngstund <b style={{ fontFamily: mono, color: T.amber, letterSpacing: "0.15em" }}>{active.code}</b> er enn í gangi
           </span>
-          <Btn primary onClick={() => onResume(active.code, bookId)} style={{ padding: "9px 14px", fontSize: 14, flexShrink: 0 }}>Halda áfram</Btn>
+          <Btn primary onClick={() => onResume(active.code, bookId, active.cohost_key)} style={{ padding: "9px 14px", fontSize: 14, flexShrink: 0 }}>Halda áfram</Btn>
           <button onClick={endActive} style={{ ...btnBase, background: "none", border: "none", color: T.red, fontSize: 13, padding: "4px 6px", flexShrink: 0 }}>Loka</button>
         </div>
       )}

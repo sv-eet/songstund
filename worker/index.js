@@ -68,7 +68,7 @@ async function handleApi(request, env, url) {
   // ── live sync: WebSocket into the session's Durable Object ──
   if ((m = pathname.match(/^\/api\/room\/([A-Za-z]{4})\/ws$/))) {
     const code = m[1].toUpperCase();
-    const row = await env.DB.prepare("SELECT user_id, ended_at FROM sessions WHERE code = ?").bind(code).first();
+    const row = await env.DB.prepare("SELECT user_id, ended_at, cohost_key FROM sessions WHERE code = ?").bind(code).first();
     if (!row) return notFound();
 
     let role = "guest";
@@ -76,6 +76,9 @@ async function handleApi(request, env, url) {
       const user = await getSessionUser(request, env);
       if (!user || user.id !== row.user_id) return unauthorized();
       role = "host";
+    } else if (url.searchParams.get("key")) {
+      // Lead-singer link: right key upgrades to cohost, wrong key stays guest.
+      if (row.cohost_key && url.searchParams.get("key") === row.cohost_key) role = "cohost";
     }
     const headers = new Headers(request.headers);
     headers.set("x-songstund-role", role);
@@ -259,7 +262,7 @@ async function handleApi(request, env, url) {
   // ── sessions ──
   if (pathname === "/api/sessions/active" && method === "GET") {
     const row = await env.DB.prepare(
-      "SELECT code, created_at FROM sessions WHERE user_id = ? AND ended_at IS NULL ORDER BY created_at DESC LIMIT 1"
+      "SELECT code, created_at, cohost_key FROM sessions WHERE user_id = ? AND ended_at IS NULL ORDER BY created_at DESC LIMIT 1"
     ).bind(user.id).first();
     return json({ session: row ?? null });
   }
@@ -281,8 +284,11 @@ async function handleApi(request, env, url) {
       code = null;
     }
     if (!code) return json({ error: "Gat ekki búið til kóða — reyndu aftur." }, 500);
-    await env.DB.prepare("INSERT INTO sessions (code, user_id) VALUES (?,?)").bind(code, user.id).run();
-    return json({ code, vanity_slug: user.vanity_slug ?? null });
+    const bytes = crypto.getRandomValues(new Uint8Array(9));
+    const cohostKey = [...bytes].map((b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
+    await env.DB.prepare("INSERT INTO sessions (code, user_id, cohost_key) VALUES (?,?,?)")
+      .bind(code, user.id, cohostKey).run();
+    return json({ code, cohost_key: cohostKey, vanity_slug: user.vanity_slug ?? null });
   }
   if ((m = pathname.match(/^\/api\/sessions\/([A-Za-z]{4})$/)) && method === "DELETE") {
     const code = m[1].toUpperCase();

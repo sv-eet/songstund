@@ -23,7 +23,8 @@ export class SessionRoom extends DurableObject {
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
     }
-    const role = request.headers.get("x-songstund-role") === "host" ? "host" : "guest";
+    const headerRole = request.headers.get("x-songstund-role");
+    const role = headerRole === "host" ? "host" : headerRole === "cohost" ? "cohost" : "guest";
     const code = request.headers.get("x-songstund-code") || "";
     await this.ctx.storage.put("code", code);
 
@@ -32,11 +33,18 @@ export class SessionRoom extends DurableObject {
     this.ctx.acceptWebSocket(server, [role]);
     server.serializeAttachment({ role, code, lastRequestAt: 0 });
 
+    server.send(JSON.stringify({ type: "role", role }));
     const state = await this.ctx.storage.get("state");
     server.send(JSON.stringify({ type: "state", state: state ?? { code, songId: null, line: 0, song: null, updatedAt: Date.now() } }));
     if (role === "host") {
       const requests = (await this.ctx.storage.get("requests")) ?? [];
       server.send(JSON.stringify({ type: "requests", requests }));
+    }
+    if (role === "host" || role === "cohost") {
+      const next = await this.ctx.storage.get("next");
+      server.send(JSON.stringify({ type: "next", next: next ? { songId: next.songId, title: next.title, author: next.author } : null }));
+      const songlist = (await this.ctx.storage.get("songlist")) ?? [];
+      server.send(JSON.stringify({ type: "songlist", songs: songlist }));
     }
     await this.broadcastPresence(code);
 
@@ -68,9 +76,49 @@ export class SessionRoom extends DurableObject {
       return;
     }
 
-    // ── host messages ──
+    // ── host + cohost messages ──
     const prev = (await this.ctx.storage.get("state")) ?? { code, songId: null, line: 0, song: null };
     let state = null;
+
+    if (msg.type === "set_line" && Number.isInteger(msg.line) && role === "cohost") {
+      state = { ...prev, code, line: msg.line, updatedAt: Date.now() };
+      await this.ctx.storage.put("state", state);
+      this.broadcast(JSON.stringify({ type: "state", state }));
+      return;
+    }
+    if (msg.type === "queue_song" && msg.songId) {
+      // Look the song up in D1 and verify it belongs to the session owner.
+      const row = await this.env.DB.prepare(
+        `SELECT s.id, s.title, s.author, s.lines_json FROM songs s
+         JOIN sessions se ON se.user_id = s.user_id
+         WHERE s.id = ? AND se.code = ?`
+      ).bind(String(msg.songId), code).first();
+      if (!row) return;
+      const next = { songId: row.id, title: row.title, author: row.author, lines: JSON.parse(row.lines_json) };
+      await this.ctx.storage.put("next", next);
+      this.sendToControllers(JSON.stringify({ type: "next", next: { songId: next.songId, title: next.title, author: next.author } }));
+      return;
+    }
+    if (msg.type === "play_next") {
+      const next = await this.ctx.storage.get("next");
+      if (!next) return;
+      const state2 = { code, songId: next.songId, line: 0, song: { title: next.title, author: next.author, lines: next.lines }, updatedAt: Date.now() };
+      await this.ctx.storage.put("state", state2);
+      await this.ctx.storage.delete("next");
+      this.broadcast(JSON.stringify({ type: "state", state: state2 }));
+      this.sendToControllers(JSON.stringify({ type: "next", next: null }));
+      return;
+    }
+    if (role !== "host") return; // everything below is host-only
+
+    if (msg.type === "set_songlist" && Array.isArray(msg.songs)) {
+      const songs = msg.songs.slice(0, 300).map((s) => ({
+        id: String(s.id), title: String(s.title ?? ""), author: String(s.author ?? ""),
+      }));
+      await this.ctx.storage.put("songlist", songs);
+      this.sendToControllers(JSON.stringify({ type: "songlist", songs }));
+      return;
+    }
 
     if (msg.type === "select_song" && msg.song) {
       state = { code, songId: msg.songId ?? null, line: 0, song: {
@@ -116,6 +164,15 @@ export class SessionRoom extends DurableObject {
   sendToHosts(payload) {
     for (const s of this.ctx.getWebSockets("host")) {
       try { s.send(payload); } catch {}
+    }
+  }
+
+  // Hosts and cohosts — everyone with controls.
+  sendToControllers(payload) {
+    for (const tag of ["host", "cohost"]) {
+      for (const s of this.ctx.getWebSockets(tag)) {
+        try { s.send(payload); } catch {}
+      }
     }
   }
 

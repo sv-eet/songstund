@@ -20,12 +20,12 @@ function Redirect({ to }) {
 export default function App() {
   const path = usePath();
   const { data: session, isPending } = authClient.useSession();
-  const [host, setHost] = useState(null); // { code, bookId } while hosting
+  const [host, setHost] = useState(null); // { code, bookId, cohostKey } while hosting
 
   const startSession = async (bookId) => {
     try {
-      const { code } = await api.post("/api/sessions");
-      setHost({ code, bookId });
+      const { code, cohost_key } = await api.post("/api/sessions");
+      setHost({ code, bookId, cohostKey: cohost_key });
     } catch (e) {
       alert(e.message);
     }
@@ -33,7 +33,8 @@ export default function App() {
 
   let view = null, m;
   if ((m = path.match(/^\/s\/([A-Za-z]{4})$/))) {
-    view = <Guest key={m[1].toUpperCase()} code={m[1].toUpperCase()} />;
+    const cohostKey = new URLSearchParams(window.location.search).get("f");
+    view = <Guest key={m[1].toUpperCase()} code={m[1].toUpperCase()} cohostKey={cohostKey} />;
   } else if ((m = path.match(/^\/p\/([a-z0-9-]+)$/))) {
     view = <Vanity slug={m[1]} />;
   } else if (path === "/reset") {
@@ -42,9 +43,9 @@ export default function App() {
     view = isPending ? null : session ? <Redirect to="/app" /> : <Login key={path} signup={path === "/signup"} />;
   } else if (path === "/app") {
     view = isPending ? null : !session ? <Redirect to="/login" /> : host
-      ? <HostSession code={host.code} initialBookId={host.bookId} vanitySlug={session.user.vanity_slug} onExit={() => setHost(null)} />
+      ? <HostSession code={host.code} initialBookId={host.bookId} cohostKey={host.cohostKey} vanitySlug={session.user.vanity_slug} onExit={() => setHost(null)} />
       : <Dashboard user={session.user} onStartSession={startSession}
-          onResume={(code, bookId) => setHost({ code, bookId })} />;
+          onResume={(code, bookId, cohostKey) => setHost({ code, bookId, cohostKey })} />;
   } else if (path === "/admin") {
     view = isPending ? null : session?.user?.is_admin ? <Admin /> : <Redirect to={session ? "/app" : "/login"} />;
   } else if (path === "/") {
