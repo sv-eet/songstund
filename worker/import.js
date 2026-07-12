@@ -95,7 +95,21 @@ export async function gpSongById(id) {
   const lines = bracketedToLines(data.song);
   if (!lines.length) return { error: "Lagið reyndist tómt." };
   const author = [...new Set((data.authors ?? []).map((a) => a?.author?.name).filter(Boolean))].join(" · ");
-  return { title: data.title ?? "", author, key: data.key ?? "", lines };
+  return { title: data.title ?? "", author, key: data.key ?? "", lines, source: `guitarparty.com/songs/${id}` };
+}
+
+/* Loose matching key so the same song arriving via different routes
+   (PDF export, URL, search) counts as a duplicate: case-, accent- and
+   separator-insensitive. */
+const ACCENTS = { á: "a", é: "e", í: "i", ó: "o", ú: "u", ý: "y", ð: "d", þ: "th", æ: "ae", ö: "o", å: "a", ø: "o", ä: "a", ü: "u", è: "e", à: "a" };
+export function normKey(s) {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/[áéíóúýðþæöåøäüèà]/g, (ch) => ACCENTS[ch] ?? ch)
+    .replace(/[·,;&+/]|\band\b|\bog\b/g, " ")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /* guitarparty.com song pages are empty shells filled client-side — read
@@ -130,14 +144,29 @@ export async function handleImport(request, env, user) {
     .bind(songbookId ?? "", user.id).first();
   if (!book) return Response.json({ error: "Söngbók fannst ekki." }, { status: 404 });
 
-  /* Songs live in the user's library; a matching title+author is reused
-     instead of duplicated, and the song is linked into the songbook. */
+  /* Songs live in the user's library; before inserting, look for the same
+     song already in the library — by Guitarparty id, or by normalized
+     title+author (lenient when one side has no author) — and reuse it.
+     Either way the song is linked into the songbook. */
   const insertSong = async (title, author, key, source, lines) => {
     const songTitle = (title || "").trim() || "Ónefnt lag";
     const songAuthor = (author || "").trim();
-    const existing = await env.DB.prepare(
-      "SELECT id, title, author, key, source, lines_json FROM songs WHERE user_id = ? AND title = ? COLLATE NOCASE AND author = ? COLLATE NOCASE"
-    ).bind(user.id, songTitle, songAuthor).first();
+    const nt = normKey(songTitle);
+    const na = normKey(songAuthor);
+    const gpSource = /^guitarparty\.com\/songs\//.test(source) ? source : null;
+
+    const { results } = await env.DB.prepare(
+      "SELECT id, title, author, key, source, lines_json FROM songs WHERE user_id = ?"
+    ).bind(user.id).all();
+    const existing = results.find((s) => {
+      if (gpSource && s.source === gpSource) return true;
+      if (songTitle === "Ónefnt lag") return false; // untitled songs never merge
+      if (normKey(s.title) !== nt) return false;
+      // Same title: authors match when equal, either is missing, or one
+      // is contained in the other ("SSSól" vs "SSSól · Helgi Björnsson").
+      const sa = normKey(s.author);
+      return sa === na || !sa || !na || sa.includes(na) || na.includes(sa);
+    });
 
     let song;
     if (existing) {
@@ -189,7 +218,7 @@ export async function handleImport(request, env, user) {
     try { gp = await gpSongById(gpId); }
     catch { return fail(kind, source, "Gat ekki sótt lagið frá Guitarparty."); }
     if (gp.error) return fail(kind, source, gp.error);
-    const song = await insertSong(title || gp.title, author || gp.author, gp.key, "guitarparty.com", gp.lines);
+    const song = await insertSong(title || gp.title, author || gp.author, gp.key, gp.source, gp.lines);
     await log(kind, source, true, `'${song.title}' — ${gp.lines.length} línur, ${countChordLines(gp.lines)} hljómalínur`, gp.lines);
     return Response.json({ songs: [song] });
   }
@@ -205,7 +234,7 @@ export async function handleImport(request, env, user) {
       try { gp = await importFromGuitarparty(url); }
       catch { return fail(kind, source, "Gat ekki sótt lagið frá Guitarparty."); }
       if (gp.error) return fail(kind, source, gp.error);
-      const song = await insertSong(title || gp.title, author || gp.author, gp.key, "guitarparty.com", gp.lines);
+      const song = await insertSong(title || gp.title, author || gp.author, gp.key, gp.source, gp.lines);
       await log(kind, source, true, `'${song.title}' — ${gp.lines.length} línur, ${countChordLines(gp.lines)} hljómalínur`, gp.lines);
       return Response.json({ songs: [song] });
     }

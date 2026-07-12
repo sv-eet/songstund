@@ -13,13 +13,43 @@ export default function ImportModal({ songbookId, currentIds, onClose, onChanged
   const [err, setErr] = useState("");
   const [library, setLibrary] = useState(null);
   const [inBook, setInBook] = useState(() => new Set(currentIds));
+  const [gpResults, setGpResults] = useState(null);
+  const [gpAdded, setGpAdded] = useState(() => new Set());
   const fileRef = useRef(null);
+  const isUrl = /^https?:\/\//i.test(url.trim());
 
-  useEffect(() => {
+  const loadLibrary = () => {
     api.get("/api/songs")
       .then(({ songs }) => setLibrary(songs))
       .catch((e) => setErr(e.message));
-  }, []);
+  };
+  useEffect(loadLibrary, []);
+  useEffect(() => { setGpResults(null); }, [url]);
+
+  const searchGp = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { results } = await api.get(`/api/gp-search?q=${encodeURIComponent(url.trim())}`);
+      setGpResults(results);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  // Add a search hit to the songbook without closing the modal — the
+  // server reuses an existing library copy if there is one.
+  const addGpResult = async (r) => {
+    setBusy(true); setErr("");
+    try {
+      const { songs } = await api.post("/api/import", { songbookId, gpId: r.id });
+      setGpAdded((cur) => new Set(cur).add(r.id));
+      setInBook((cur) => new Set(cur).add(songs[0].id));
+      loadLibrary();
+      onChanged();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const inLibrary = (r) => library?.some((s) => s.source === `guitarparty.com/songs/${r.id}`);
 
   const submit = async (payload) => {
     setBusy(true); setErr("");
@@ -92,7 +122,7 @@ export default function ImportModal({ songbookId, currentIds, onClose, onChanged
           <button onClick={onClose} style={{ ...btnBase, background: "none", color: T.dim, padding: "6px 12px" }}>✕</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-          {[["safn", "Úr safni"], ["paste", "Líma texta"], ["url", "Vefslóð"], ["pdf", "PDF"]].map(([k, l]) => (
+          {[["safn", "Úr safni"], ["paste", "Líma texta"], ["url", "Leita / slóð"], ["pdf", "PDF"]].map(([k, l]) => (
             <button key={k} onClick={() => { setTab(k); setErr(""); }} style={{
               ...btnBase, padding: "8px 12px", fontSize: 14, flex: 1,
               background: tab === k ? T.raised : "none",
@@ -145,14 +175,44 @@ export default function ImportModal({ songbookId, currentIds, onClose, onChanged
 
         {tab === "url" && (
           <div style={{ display: "grid", gap: 10 }}>
-            <Input placeholder="https://www.guitarparty.com/songs/…" value={url} onChange={(e) => setUrl(e.target.value)} />
-            <Input placeholder="Titill (valfrjálst — annars lesinn af síðunni)" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <Input placeholder="Höfundur (valfrjálst)" value={author} onChange={(e) => setAuthor(e.target.value)} />
-            <Btn primary disabled={!url.trim() || busy} onClick={() => submit({ url: url.trim() })}
-              style={{ opacity: url.trim() && !busy ? 1 : 0.5 }}>{busy ? "Sæki og greini…" : "Sækja lag"}</Btn>
-            <p style={{ color: T.faint, fontSize: 13 }}>
-              Guitarparty-slóðir eru studdar sérstaklega; aðrar síður eru greindar eftir bestu getu.
-            </p>
+            <Input placeholder="Leita á Guitarparty … eða líma slóð" value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (isUrl ? submit({ url: url.trim() }) : url.trim().length >= 2 && searchGp())} />
+            {isUrl ? (
+              <>
+                <Btn primary disabled={busy} onClick={() => submit({ url: url.trim() })}
+                  style={{ opacity: !busy ? 1 : 0.5 }}>{busy ? "Sæki og greini…" : "Sækja lag af slóðinni"}</Btn>
+                <p style={{ color: T.faint, fontSize: 13 }}>
+                  Guitarparty-slóðir eru studdar sérstaklega; aðrar síður eru greindar eftir bestu getu.
+                </p>
+              </>
+            ) : (
+              <>
+                {gpResults === null && (
+                  <Btn primary disabled={url.trim().length < 2 || busy} onClick={searchGp}
+                    style={{ opacity: url.trim().length >= 2 && !busy ? 1 : 0.5 }}>
+                    {busy ? "Leita…" : "Leita á Guitarparty ↗"}
+                  </Btn>
+                )}
+                {gpResults?.length === 0 && <p style={{ color: T.faint, fontSize: 14 }}>Ekkert fannst — prófaðu annað leitarorð.</p>}
+                {gpResults?.map((r) => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 2px", borderBottom: `1px solid ${T.line}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.title}</div>
+                      <div style={{ color: T.dim, fontSize: 12 }}>{r.author}{inLibrary(r) ? " · til í safninu" : ""}</div>
+                    </div>
+                    {gpAdded.has(r.id) ? (
+                      <span style={{ color: T.live, fontSize: 13, flexShrink: 0 }}>Komið í bókina ✓</span>
+                    ) : (
+                      <button onClick={() => addGpResult(r)} disabled={busy} style={{
+                        ...btnBase, background: T.amber, color: "#221708", fontWeight: 600,
+                        padding: "7px 13px", fontSize: 13, borderColor: T.amber, flexShrink: 0, opacity: busy ? 0.6 : 1,
+                      }}>＋ Bæta við</button>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
 
