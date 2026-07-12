@@ -430,7 +430,7 @@ export default function HostSession({ code, initialBookId, vanitySlug, onExit })
         <SongLines song={{ ...song, lines: playedLines }} current={line} showChords={showChords} onTapLine={advanceTo} refs={refs} />
       </div>
 
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, #171310 30%)", padding: "26px 24px 20px" }}>
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, #171310 30%)", padding: "26px 24px calc(20px + env(safe-area-inset-bottom))" }}>
         <div style={{ maxWidth: 592, margin: "0 auto", display: "flex", gap: 10, alignItems: "center" }}>
           <Btn primary={auto} onClick={() => setAuto((a) => !a)} style={{ flexShrink: 0 }}>
             {auto ? "❚❚" : "▶"} Sjálfvirkt

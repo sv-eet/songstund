@@ -109,7 +109,7 @@ export default function Guest({ code }) {
       )}
 
       {status === "live" && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, #171310 55%)", padding: "22px 20px 14px" }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, #171310 55%)", padding: "22px 20px calc(14px + env(safe-area-inset-bottom))" }}>
           <div style={{ maxWidth: 520, margin: "0 auto" }}>
             {reqOpen ? (
               <div>

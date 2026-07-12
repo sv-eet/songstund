@@ -56,9 +56,17 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, color: T.ink, fontFamily: serif, display: "flex", flexDirection: "column" }}>
+    <div className="app-shell" style={{ background: T.bg, color: T.ink, fontFamily: serif, display: "flex", flexDirection: "column" }}>
       <style>{`
         * { box-sizing: border-box; margin: 0; }
+        html, body { background: ${T.bg}; overscroll-behavior-y: none; }
+        .app-shell {
+          min-height: 100vh;
+          min-height: 100dvh; /* Android: exclude the URL/gesture bars from the viewport */
+          padding-top: env(safe-area-inset-top);
+          padding-left: env(safe-area-inset-left);
+          padding-right: env(safe-area-inset-right);
+        }
         button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid ${T.amber}; outline-offset: 2px; }
         @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
         @media (prefers-reduced-motion: reduce) { * { animation:none!important; transition:none!important; scroll-behavior:auto!important } }
