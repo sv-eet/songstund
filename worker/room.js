@@ -36,11 +36,9 @@ export class SessionRoom extends DurableObject {
     server.send(JSON.stringify({ type: "role", role }));
     const state = await this.ctx.storage.get("state");
     server.send(JSON.stringify({ type: "state", state: state ?? { code, songId: null, line: 0, song: null, updatedAt: Date.now() } }));
-    if (role === "host") {
+    if (role === "host" || role === "cohost") {
       const requests = (await this.ctx.storage.get("requests")) ?? [];
       server.send(JSON.stringify({ type: "requests", requests }));
-    }
-    if (role === "host" || role === "cohost") {
       const next = await this.ctx.storage.get("next");
       server.send(JSON.stringify({ type: "next", next: next ? { songId: next.songId, title: next.title, author: next.author } : null }));
       const songlist = (await this.ctx.storage.get("songlist")) ?? [];
@@ -71,7 +69,7 @@ export class SessionRoom extends DurableObject {
       const requests = ((await this.ctx.storage.get("requests")) ?? []).slice(-MAX_REQUESTS + 1);
       requests.push({ id: crypto.randomUUID(), text, at: now });
       await this.ctx.storage.put("requests", requests);
-      this.sendToHosts(JSON.stringify({ type: "requests", requests }));
+      this.sendToControllers(JSON.stringify({ type: "requests", requests }));
       try { ws.send(JSON.stringify({ type: "request_ok" })); } catch {}
       return;
     }
@@ -97,6 +95,12 @@ export class SessionRoom extends DurableObject {
       const next = { songId: row.id, title: row.title, author: row.author, lines: JSON.parse(row.lines_json) };
       await this.ctx.storage.put("next", next);
       this.sendToControllers(JSON.stringify({ type: "next", next: { songId: next.songId, title: next.title, author: next.author } }));
+      return;
+    }
+    if (msg.type === "request_done" && msg.id) {
+      const requests = ((await this.ctx.storage.get("requests")) ?? []).filter((r) => r.id !== msg.id);
+      await this.ctx.storage.put("requests", requests);
+      this.sendToControllers(JSON.stringify({ type: "requests", requests }));
       return;
     }
     if (msg.type === "play_next") {
@@ -130,11 +134,6 @@ export class SessionRoom extends DurableObject {
       state = { ...prev, code, line: msg.line, updatedAt: Date.now() };
     } else if (msg.type === "clear_song") {
       state = { code, songId: null, line: 0, song: null, updatedAt: Date.now() };
-    } else if (msg.type === "request_done" && msg.id) {
-      const requests = ((await this.ctx.storage.get("requests")) ?? []).filter((r) => r.id !== msg.id);
-      await this.ctx.storage.put("requests", requests);
-      this.sendToHosts(JSON.stringify({ type: "requests", requests }));
-      return;
     } else if (msg.type === "end") {
       await this.ctx.storage.deleteAll();
       this.broadcast(JSON.stringify({ type: "ended" }));

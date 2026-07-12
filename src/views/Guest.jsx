@@ -16,6 +16,7 @@ export default function Guest({ code, cohostKey }) {
   const [songlist, setSonglist] = useState([]);
   const [next, setNext] = useState(null);
   const [listOpen, setListOpen] = useState(false);
+  const [requests, setRequests] = useState([]);
   const refs = useRef([]);
   const wsRef = useRef(null);
   // Guests read along without touching the screen — keep it awake while live.
@@ -36,6 +37,7 @@ export default function Guest({ code, cohostKey }) {
         if (msg.type === "role") setIsCohost(msg.role === "cohost");
         if (msg.type === "songlist") setSonglist(msg.songs ?? []);
         if (msg.type === "next") setNext(msg.next);
+        if (msg.type === "requests") setRequests(msg.requests ?? []);
         if (msg.type === "ended") { setStatus("ended"); closed = true; }
         if (msg.type === "request_ok") {
           setReqNote("sent");
@@ -132,6 +134,18 @@ export default function Guest({ code, cohostKey }) {
           <div style={{ maxWidth: 520, margin: "0 auto" }}>
             {listOpen && (
               <div style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12, marginBottom: 10, maxHeight: "45vh", overflowY: "auto", padding: "4px 12px" }}>
+                {requests.length > 0 && (
+                  <div style={{ borderBottom: `1px solid ${T.line}`, paddingBottom: 4, marginBottom: 4 }}>
+                    <Tag color={T.amber}>óskalög gesta</Tag>
+                    {requests.map((r) => (
+                      <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0" }}>
+                        <span style={{ flex: 1, fontSize: 14, color: T.dim, wordBreak: "break-word", minWidth: 0 }}>{r.text}</span>
+                        <button onClick={() => sendCtl({ type: "request_done", id: r.id })} aria-label="Merkja ósk afgreidda"
+                          style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "4px 6px", flexShrink: 0 }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {songlist.length === 0 && <p style={{ color: T.faint, fontSize: 14, padding: "10px 2px" }}>Engin lög enn.</p>}
                 {songlist.map((s) => (
                   <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${T.line}` }}>
@@ -160,8 +174,8 @@ export default function Guest({ code, cohostKey }) {
             )}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setListOpen((o) => !o)} style={{
-                ...btnBase, flex: 1, background: listOpen ? T.raised : "rgba(36,29,24,0.9)", color: T.dim, padding: "11px 14px", fontSize: 14,
-              }}>♪ Lög</button>
+                ...btnBase, flex: 1, background: listOpen ? T.raised : "rgba(36,29,24,0.9)", color: requests.length ? T.amber : T.dim, padding: "11px 14px", fontSize: 14,
+              }}>♪ Lög{requests.length ? ` (${requests.length})` : ""}</button>
               <button onClick={cohostNextLine} disabled={!state?.song} style={{
                 ...btnBase, flex: 2, background: T.raised, color: T.ink, padding: "11px 14px", fontSize: 15, opacity: state?.song ? 1 : 0.5,
               }}>Næsta ↓</button>
