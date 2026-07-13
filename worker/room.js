@@ -56,8 +56,9 @@ export class SessionRoom extends DurableObject {
     let msg;
     try { msg = JSON.parse(message); } catch { return; }
 
-    if (role === "guest") {
-      if (msg.type !== "request") return;
+    // Guests and cohosts alike can send in a song wish (the lead singer
+    // may want the guitarist to fetch something outside the songbook).
+    if (msg.type === "request" && (role === "guest" || role === "cohost")) {
       const now = Date.now();
       if (now - (attachment.lastRequestAt ?? 0) < REQUEST_MIN_GAP_MS) {
         try { ws.send(JSON.stringify({ type: "request_err", message: "Aðeins rólegri — reyndu aftur eftir smástund." })); } catch {}
@@ -67,12 +68,13 @@ export class SessionRoom extends DurableObject {
       if (!text) return;
       ws.serializeAttachment({ ...attachment, lastRequestAt: now });
       const requests = ((await this.ctx.storage.get("requests")) ?? []).slice(-MAX_REQUESTS + 1);
-      requests.push({ id: crypto.randomUUID(), text, at: now });
+      requests.push({ id: crypto.randomUUID(), text, from: role, at: now });
       await this.ctx.storage.put("requests", requests);
       this.sendToControllers(JSON.stringify({ type: "requests", requests }));
       try { ws.send(JSON.stringify({ type: "request_ok" })); } catch {}
       return;
     }
+    if (role === "guest") return; // only "request" is valid from a plain guest
 
     // ── host + cohost messages ──
     const prev = (await this.ctx.storage.get("state")) ?? { code, songId: null, line: 0, song: null };

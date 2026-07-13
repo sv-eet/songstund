@@ -172,10 +172,38 @@ export default function Guest({ code, cohostKey }) {
                   style={{ ...btnBase, background: T.amber, color: "#221708", fontWeight: 600, padding: "7px 12px", fontSize: 13, borderColor: T.amber, flexShrink: 0 }}>▶ Spila</button>
               </div>
             )}
+            {reqOpen && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input value={reqText} onChange={(e) => setReqText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && sendRequest()}
+                    placeholder="Lag, flytjandi … eða guitarparty-slóð"
+                    aria-label="Óska eftir lagi frá gítarleikaranum"
+                    style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 10, color: T.ink, padding: "11px 13px", fontSize: 16, flex: 1, font: "inherit", minWidth: 0 }} />
+                  <button onClick={sendRequest} disabled={!reqText.trim()} style={{
+                    ...btnBase, background: T.amber, color: "#221708", fontWeight: 600,
+                    padding: "11px 15px", fontSize: 14, borderColor: T.amber, flexShrink: 0,
+                    opacity: reqText.trim() ? 1 : 0.5,
+                  }}>Senda</button>
+                  <button onClick={() => { setReqOpen(false); setReqNote(null); }} aria-label="Hætta við ósk"
+                    style={{ ...btnBase, background: "none", border: "none", color: T.faint, padding: "0 4px", flexShrink: 0 }}>✕</button>
+                </div>
+                {reqNote && (
+                  <p style={{ color: reqNote === "sent" ? T.live : T.red, fontSize: 13, marginTop: 8, textAlign: "center" }}>
+                    {reqNote === "sent" ? "Óskin er komin til gítarleikarans ♪" : reqNote}
+                  </p>
+                )}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setListOpen((o) => !o)} style={{
-                ...btnBase, flex: 1, background: listOpen ? T.raised : "rgba(36,29,24,0.9)", color: requests.length ? T.amber : T.dim, padding: "11px 14px", fontSize: 14,
+                ...btnBase, flex: 1, background: listOpen ? T.raised : "rgba(36,29,24,0.9)", color: requests.length ? T.amber : T.dim, padding: "11px 12px", fontSize: 14,
               }}>♪ Lög{requests.length ? ` (${requests.length})` : ""}</button>
+              {!reqOpen && (
+                <button onClick={() => setReqOpen(true)} style={{
+                  ...btnBase, flex: 1, background: "rgba(36,29,24,0.9)", color: T.dim, padding: "11px 12px", fontSize: 14,
+                }}>Óska</button>
+              )}
               <button onClick={cohostNextLine} disabled={!state?.song} style={{
                 ...btnBase, flex: 2, background: T.raised, color: T.ink, padding: "11px 14px", fontSize: 15, opacity: state?.song ? 1 : 0.5,
               }}>Næsta ↓</button>
